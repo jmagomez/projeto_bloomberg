@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PETR4.SA — Dashboard | Projeto Bloomberg</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --up:#3fb950; --down:#f85149; --accent:#58a6ff; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; padding:24px; }
+  .container { max-width:1100px; margin:0 auto; }
+  header { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+  h1 { font-size:1.5rem; } h1 .tick { color:var(--accent); }
+  .period { color:var(--muted); font-size:.9rem; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .card .label { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; }
+  .card .value { font-size:1.35rem; font-weight:600; margin-top:4px; }
+  .card .sub { color:var(--muted); font-size:.75rem; margin-top:2px; }
+  .up { color:var(--up); } .down { color:var(--down); }
+  .panel { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:16px; }
+  .panel h2 { font-size:1rem; color:var(--muted); font-weight:500; margin-bottom:12px; }
+  footer { color:var(--muted); font-size:.78rem; text-align:center; margin-top:24px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1><span class="tick">PETR4.SA</span> — Petrobras PN</h1>
+    <span class="period">2025-09-09 a 2026-02-02 · 100 pregões · fonte: Alpha Vantage</span>
+  </header>
+  <div class="cards">
+    <div class="card"><div class="label">Último fechamento</div><div class="value">R$ 37.24</div><div class="sub">2026-02-02</div></div>
+    <div class="card"><div class="label">Retorno no período</div><div class="value up">+20.32%</div><div class="sub">de R$ 30.95</div></div>
+    <div class="card"><div class="label">Máxima</div><div class="value">R$ 38.58</div><div class="sub">2026-01-29</div></div>
+    <div class="card"><div class="label">Mínima</div><div class="value">R$ 29.31</div><div class="sub">2025-10-17</div></div>
+    <div class="card"><div class="label">Volatilidade diária</div><div class="value">1.37%</div><div class="sub">desvio-padrão</div></div>
+    <div class="card"><div class="label">Volume médio</div><div class="value">37.0M</div><div class="sub">máx 97.3M</div></div>
+    <div class="card"><div class="label">Melhor dia</div><div class="value up">+4.35%</div><div class="sub">2026-01-23</div></div>
+    <div class="card"><div class="label">Pior dia</div><div class="value down">-3.54%</div><div class="sub">2025-12-05</div></div>
+  </div>
+  <div class="panel"><h2>Preço de fechamento (R$)</h2><canvas id="priceChart" height="90"></canvas></div>
+  <div class="panel"><h2>Volume negociado</h2><canvas id="volChart" height="60"></canvas></div>
+  <div class="panel"><h2>Variação diária (%)</h2><canvas id="varChart" height="60"></canvas></div>
+  <footer>Projeto Bloomberg · pipeline ETL (raw → silver → gold) · gerado automaticamente</footer>
+</div>
+<script>
+const D = {"dates": ["2025-09-09", "2025-09-10", "2025-09-11", "2025-09-12", "2025-09-15", "2025-09-16", "2025-09-17", "2025-09-18", "2025-09-19", "2025-09-22", "2025-09-23", "2025-09-24", "2025-09-25", "2025-09-26", "2025-09-29", "2025-09-30", "2025-10-01", "2025-10-02", "2025-10-03", "2025-10-06", "2025-10-07", "2025-10-08", "2025-10-09", "2025-10-10", "2025-10-13", "2025-10-14", "2025-10-15", "2025-10-16", "2025-10-17", "2025-10-20", "2025-10-21", "2025-10-22", "2025-10-23", "2025-10-24", "2025-10-27", "2025-10-28", "2025-10-29", "2025-10-30", "2025-10-31", "2025-11-03", "2025-11-04", "2025-11-05", "2025-11-06", "2025-11-07", "2025-11-10", "2025-11-11", "2025-11-12", "2025-11-13", "2025-11-14", "2025-11-17", "2025-11-18", "2025-11-19", "2025-11-21", "2025-11-24", "2025-11-25", "2025-11-26", "2025-11-27", "2025-11-28", "2025-12-01", "2025-12-02", "2025-12-03", "2025-12-04", "2025-12-05", "2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12", "2025-12-15", "2025-12-16", "2025-12-17", "2025-12-18", "2025-12-19", "2025-12-22", "2025-12-23", "2025-12-26", "2025-12-29", "2025-12-30", "2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-12", "2026-01-13", "2026-01-14", "2026-01-15", "2026-01-16", "2026-01-19", "2026-01-20", "2026-01-21", "2026-01-22", "2026-01-23", "2026-01-26", "2026-01-27", "2026-01-28", "2026-01-29", "2026-01-30", "2026-02-02"], "close": [30.95, 31.51, 31.39, 31.18, 31.45, 31.53, 31.72, 31.41, 31.06, 31.37, 31.9, 32.62, 32.36, 32.25, 31.81, 31.46, 31.38, 31.08, 31.0, 30.72, 30.83, 30.65, 30.21, 29.94, 30.23, 30.02, 29.75, 29.45, 29.73, 29.75, 29.51, 29.85, 30.19, 29.84, 30.0, 29.99, 30.02, 29.89, 29.75, 30.1, 30.25, 30.85, 31.01, 32.18, 32.36, 33.2, 32.35, 32.49, 32.7, 32.88, 32.99, 32.82, 32.57, 32.54, 32.28, 32.23, 32.4, 31.79, 31.85, 32.07, 32.31, 32.52, 31.37, 31.66, 31.86, 31.94, 31.41, 31.59, 31.7, 30.74, 31.08, 30.9, 31.01, 31.1, 30.31, 30.41, 30.73, 30.82, 30.71, 30.2, 29.64, 29.83, 30.2, 30.3, 30.36, 31.14, 31.99, 31.79, 32.04, 32.17, 32.29, 33.43, 33.58, 35.04, 35.36, 36.13, 37.34, 37.7, 37.76, 37.24], "open": [30.86, 30.96, 31.3, 31.45, 31.3, 31.6, 31.54, 31.77, 31.43, 31.0, 31.49, 32.16, 32.7, 32.49, 32.26, 31.69, 31.45, 31.38, 31.16, 31.2, 30.72, 31.08, 30.66, 30.1, 30.15, 29.95, 30.05, 29.74, 29.5, 29.7, 29.96, 29.76, 30.52, 30.3, 30.16, 29.9, 30.09, 29.92, 30.0, 29.88, 30.0, 30.25, 30.98, 31.22, 32.3, 32.54, 33.26, 32.36, 32.6, 32.76, 32.7, 32.8, 32.56, 32.56, 32.35, 32.38, 32.28, 32.27, 31.95, 31.93, 32.15, 32.49, 32.5, 31.57, 31.61, 31.88, 31.88, 31.41, 31.68, 31.53, 30.86, 31.2, 31.07, 31.25, 30.55, 30.31, 30.56, 30.8, 30.96, 30.7, 30.37, 29.67, 29.91, 30.17, 30.3, 30.36, 31.35, 31.5, 31.95, 31.96, 32.17, 32.5, 33.38, 33.95, 35.37, 35.51, 36.55, 38.0, 37.23, 37.23], "high": [31.15, 31.54, 31.48, 31.7, 31.55, 31.68, 31.79, 31.82, 31.45, 31.47, 32.09, 32.63, 32.8, 32.74, 32.54, 31.9, 31.55, 31.41, 31.33, 31.23, 30.86, 31.08, 30.84, 30.16, 30.27, 30.46, 30.17, 29.81, 29.95, 29.9, 29.99, 30.03, 30.72, 30.45, 30.16, 30.35, 30.16, 30.16, 30.09, 30.47, 30.26, 30.95, 31.28, 32.18, 32.55, 33.44, 33.26, 32.94, 33.17, 33.08, 33.17, 32.98, 32.74, 32.75, 32.44, 32.41, 32.4, 32.31, 32.17, 32.07, 32.5, 32.75, 32.91, 31.99, 31.9, 31.99, 31.9, 31.72, 31.9, 31.53, 31.08, 31.28, 31.24, 31.53, 30.57, 30.43, 30.81, 30.96, 30.96, 30.77, 30.43, 29.83, 30.34, 30.74, 30.57, 31.32, 32.53, 31.93, 32.2, 32.21, 32.52, 33.55, 34.13, 35.48, 35.7, 36.45, 37.44, 38.58, 37.98, 37.24], "low": [30.81, 30.92, 31.27, 31.16, 31.06, 31.34, 31.46, 31.19, 30.91, 30.84, 31.46, 32.06, 32.24, 32.15, 31.73, 31.16, 31.3, 31.02, 31.0, 30.7, 30.35, 30.5, 30.19, 29.87, 29.97, 29.88, 29.67, 29.41, 29.31, 29.48, 29.47, 29.62, 30.11, 29.81, 29.69, 29.76, 29.8, 29.76, 29.55, 29.8, 29.91, 30.21, 30.9, 30.85, 31.93, 32.45, 32.08, 32.32, 32.58, 32.73, 32.67, 32.54, 32.36, 32.36, 32.09, 32.1, 32.2, 31.29, 31.57, 31.44, 32.15, 32.45, 31.37, 31.49, 31.33, 31.54, 31.25, 31.34, 31.59, 30.61, 30.82, 30.83, 30.97, 31.1, 30.2, 30.12, 30.52, 30.65, 30.36, 29.73, 29.62, 29.53, 29.79, 30.14, 30.21, 30.36, 31.2, 31.44, 31.88, 31.91, 31.94, 32.43, 33.26, 33.88, 35.04, 35.37, 36.5, 37.57, 37.02, 37.02], "volume": [31283900, 35949600, 17607900, 19318400, 21978400, 19154700, 29148100, 25702900, 48871300, 22016100, 39895300, 36414400, 29556300, 27819700, 35720000, 48611500, 24817000, 25497100, 19756800, 21245400, 29068800, 17687400, 22879700, 50214400, 13890500, 28138200, 40261000, 28660900, 36238600, 31442800, 25509900, 27088800, 40060800, 24370300, 24771400, 25324800, 24854900, 22657200, 29516300, 54977300, 35035200, 40375900, 43435700, 97315600, 41064200, 68221300, 67646400, 38517200, 27371300, 63708200, 26520500, 48719300, 40869300, 38665600, 28431100, 25042100, 16087400, 60420500, 29489100, 25574100, 36630000, 33009700, 74495100, 30271600, 23863000, 22123700, 64927900, 39659900, 31898900, 52661900, 39337100, 34311000, 45807700, 35896900, 35703900, 20178600, 20588100, 16880600, 21625200, 48211400, 38095000, 28132900, 34125800, 27982800, 18947400, 54097100, 82309300, 26456600, 70947300, 12852900, 26300000, 93270900, 71516300, 68642600, 39869600, 47268200, 46054700, 58722800, 45794700, 38533300], "var": [0.0, 1.81, -0.38, -0.67, 0.87, 0.25, 0.6, -0.98, -1.11, 1.0, 1.69, 2.26, -0.8, -0.34, -1.36, -1.1, -0.25, -0.96, -0.26, -0.9, 0.36, -0.58, -1.44, -0.89, 0.97, -0.69, -0.9, -1.01, 0.95, 0.07, -0.81, 1.15, 1.14, -1.16, 0.54, -0.03, 0.1, -0.43, -0.47, 1.18, 0.5, 1.98, 0.52, 3.77, 0.56, 2.6, -2.56, 0.43, 0.65, 0.55, 0.33, -0.52, -0.76, -0.09, -0.8, -0.15, 0.53, -1.88, 0.19, 0.69, 0.75, 0.65, -3.54, 0.92, 0.63, 0.25, -1.66, 0.57, 0.35, -3.03, 1.11, -0.58, 0.36, 0.29, -2.54, 0.33, 1.05, 0.29, -0.36, -1.66, -1.85, 0.64, 1.24, 0.33, 0.2, 2.57, 2.73, -0.63, 0.79, 0.41, 0.37, 3.53, 0.45, 4.35, 0.91, 2.18, 3.35, 0.96, 0.16, -1.38]};
+const gridColor = 'rgba(139,148,158,.15)', tickColor = '#8b949e';
+Chart.defaults.color = tickColor; Chart.defaults.borderColor = gridColor;
+new Chart(document.getElementById('priceChart'), {
+  type:'line',
+  data:{ labels:D.dates, datasets:[{ label:'Fechamento', data:D.close, borderColor:'#58a6ff', backgroundColor:'rgba(88,166,255,.12)', fill:true, tension:.25, pointRadius:0, borderWidth:2 }] },
+  options:{ plugins:{legend:{display:false}}, interaction:{mode:'index',intersect:false}, scales:{ x:{ticks:{maxTicksLimit:10}}, y:{} } }
+});
+new Chart(document.getElementById('volChart'), {
+  type:'bar',
+  data:{ labels:D.dates, datasets:[{ label:'Volume', data:D.volume, backgroundColor:'rgba(88,166,255,.45)' }] },
+  options:{ plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:10}}, y:{ticks:{callback:v=>(v/1e6)+'M'}} } }
+});
+new Chart(document.getElementById('varChart'), {
+  type:'bar',
+  data:{ labels:D.dates, datasets:[{ label:'Variação %', data:D.var, backgroundColor:D.var.map(v=>v>=0?'rgba(63,185,80,.65)':'rgba(248,81,73,.65)') }] },
+  options:{ plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:10}}, y:{ticks:{callback:v=>v+'%'}} } }
+});
+</script>
+</body>
+</html>

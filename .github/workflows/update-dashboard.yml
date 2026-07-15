@@ -31,6 +31,23 @@ jobs:
           git diff --cached --quiet || git commit -m "Atualiza dados do dashboard (rotina semanal)"
           git push
 
+      - name: Extrai resumo para o e-mail
+        id: resumo
+        run: |
+          python - << 'PY' >> "$GITHUB_OUTPUT"
+          import json
+          raw = open('data.js', encoding='utf-8').read().strip()
+          data = json.loads(raw.removeprefix('window.PETR4 = ').rstrip(';\n'))
+          s, c = data['stats'], data['W']['c']
+          var_sem = (c[-1] / c[-2] - 1) * 100 if len(c) > 1 else 0.0
+          print(f"last_close={s['last_close']:.2f}")
+          print(f"last_date={s['last_date']}")
+          print(f"var_semana={var_sem:+.2f}")
+          print(f"max_high={s['max_high']:.2f}")
+          print(f"min_low={s['min_low']:.2f}")
+          print(f"ret_pct={s['ret_pct']:+.2f}")
+          PY
+
       - name: Envia e-mail com o dashboard
         if: success()
         continue-on-error: true   # não falha o workflow se os secrets de e-mail não existirem
@@ -40,11 +57,17 @@ jobs:
           server_port: 465
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "Dashboard PETR4 atualizado — rotina semanal"
+          subject: "PETR4 R$ ${{ steps.resumo.outputs.last_close }} (${{ steps.resumo.outputs.var_semana }}% na semana) — dashboard atualizado"
           to: jmagomez@gmail.com
           from: "Projeto Bloomberg <${{ secrets.MAIL_USERNAME }}>"
           html_body: |
-            <p>O dashboard da PETR4 foi atualizado com os dados desta semana.</p>
-            <p><a href="https://jmagomez.github.io/projeto_bloomberg/">Abrir dashboard atualizado</a></p>
-            <p>Anexos: página do dashboard e dados da semana.</p>
-          attachments: index.html,data.js
+            <h2>Dashboard PETR4 atualizado</h2>
+            <p>Dados até <b>${{ steps.resumo.outputs.last_date }}</b>:</p>
+            <ul>
+              <li>Último fechamento: <b>R$ ${{ steps.resumo.outputs.last_close }}</b></li>
+              <li>Variação na semana: <b>${{ steps.resumo.outputs.var_semana }}%</b></li>
+              <li>Retorno desde 2010: ${{ steps.resumo.outputs.ret_pct }}% (sem proventos)</li>
+              <li>Máxima histórica: R$ ${{ steps.resumo.outputs.max_high }} · Mínima: R$ ${{ steps.resumo.outputs.min_low }}</li>
+            </ul>
+            <p><a href="https://jmagomez.github.io/projeto_bloomberg/">Abrir o dashboard completo</a> (candlestick, suporte/resistência, tendência, médias móveis, RSI e volume)</p>
+            <p style="color:#888;font-size:12px">Rotina semanal automática via GitHub Actions · não é recomendação de investimento</p>

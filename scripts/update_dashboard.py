@@ -2,6 +2,7 @@
 calcula estatísticas diárias e a série semanal OHLCV desde 2010."""
 import json
 import statistics
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,11 +16,41 @@ PERIOD1 = 1262304000  # 2010-01-01
 URL = "https://query1.finance.yahoo.com/v8/finance/chart/{s}?period1={p1}&period2={p2}&interval=1d"
 HEADERS = {"User-Agent": "Mozilla/5.0 (dashboard-updater)"}
 
+TENTATIVAS = 4
+ESPERA_BASE = 5.0  # segundos; dobra a cada tentativa (5, 10, 20)
+RETRIABLE = {429, 500, 502, 503, 504}
+
 
 def fetch_daily():
+    """Busca a série diária no Yahoo Finance com retry e backoff exponencial.
+
+    O endpoint costuma responder 429 (rate limit) para IPs de runners do
+    GitHub; sem retry a rotina quebraria de forma intermitente.
+    """
     p2 = int(datetime.now(timezone.utc).timestamp())
-    r = requests.get(URL.format(s=SYMBOL, p1=PERIOD1, p2=p2), headers=HEADERS, timeout=60)
-    r.raise_for_status()
+    url = URL.format(s=SYMBOL, p1=PERIOD1, p2=p2)
+    ultima_falha = None
+    r = None
+    for tentativa in range(TENTATIVAS):
+        if tentativa:
+            espera = ESPERA_BASE * 2 ** (tentativa - 1)
+            print(f"[update] tentativa {tentativa + 1}/{TENTATIVAS} em {espera:.0f}s ({ultima_falha})")
+            time.sleep(espera)
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=60)
+        except requests.RequestException as exc:
+            ultima_falha = f"erro de rede: {exc}"
+            continue
+        if r.status_code in RETRIABLE:
+            ultima_falha = f"HTTP {r.status_code}"
+            continue
+        r.raise_for_status()
+        break
+    else:
+        raise RuntimeError(
+            f"Yahoo Finance indisponível após {TENTATIVAS} tentativas ({ultima_falha})"
+        )
+
     res = r.json()["chart"]["result"][0]
     ts, q = res["timestamp"], res["indicators"]["quote"][0]
     rows = []

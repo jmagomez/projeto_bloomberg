@@ -14,13 +14,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Detecta cedo se os secrets de e-mail existem. Os passos de e-mail só
+      # rodam quando existem — sem continue-on-error, que mascarava qualquer
+      # falha real de SMTP (senha expirada, bloqueio do Gmail etc.).
+      - name: Verifica secrets de e-mail
+        id: mail
+        env:
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+        run: |
+          if [ -n "$MAIL_USERNAME" ] && [ -n "$MAIL_PASSWORD" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Secrets MAIL_USERNAME/MAIL_PASSWORD ausentes — e-mails não serão enviados."
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Atualiza dados
         run: |
-          pip install requests
+          pip install -r requirements.txt
           python scripts/update_dashboard.py
 
       - name: Commita se houver mudança
@@ -49,12 +66,12 @@ jobs:
           PY
 
       - name: Envia e-mail com o dashboard
-        if: success()
-        continue-on-error: true   # não falha o workflow se os secrets de e-mail não existirem
-        uses: dawidd6/action-send-mail@v3
+        if: success() && steps.mail.outputs.ok == 'true'
+        uses: dawidd6/action-send-mail@v6
         with:
           server_address: smtp.gmail.com
           server_port: 465
+          secure: true
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: "PETR4 R$ ${{ steps.resumo.outputs.last_close }} (${{ steps.resumo.outputs.var_semana }}% na semana) — dashboard atualizado"
@@ -71,3 +88,20 @@ jobs:
             </ul>
             <p><a href="https://jmagomez.github.io/projeto_bloomberg/">Abrir o dashboard completo</a> (candlestick, suporte/resistência, tendência, médias móveis, RSI e volume)</p>
             <p style="color:#888;font-size:12px">Rotina semanal automática via GitHub Actions · não é recomendação de investimento</p>
+
+      - name: Notifica falha por e-mail
+        if: failure() && steps.mail.outputs.ok == 'true'
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "⚠️ Rotina do dashboard PETR4 falhou (run ${{ github.run_number }})"
+          to: jmagomez@gmail.com
+          from: "Projeto Bloomberg <${{ secrets.MAIL_USERNAME }}>"
+          body: |
+            A rotina semanal do dashboard PETR4 falhou.
+
+            Log completo: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

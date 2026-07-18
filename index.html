@@ -26,6 +26,26 @@
   .legend span { margin-right:14px; }
   .dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
   footer { color:var(--muted); font-size:.78rem; text-align:center; margin-top:24px; }
+
+  /* Os gráficos têm altura fixa em CSS (com maintainAspectRatio:false no Chart.js).
+     Sem isso, a altura acompanha a largura da tela e os gráficos ficam
+     minúsculos no celular. */
+  .chart-box { position:relative; width:100%; }
+  .chart-box.h-lg { height:420px; }
+  .chart-box.h-md { height:340px; }
+  .chart-box.h-sm { height:220px; }
+
+  @media (max-width:640px) {
+    body { padding:12px; }
+    .panel { padding:12px; }
+    h1 { font-size:1.15rem; }
+    .cards { grid-template-columns:repeat(2,1fr); gap:8px; }
+    .card { padding:10px 12px; }
+    .card .value { font-size:1.05rem; }
+    .chart-box.h-lg { height:340px; }
+    .chart-box.h-md { height:280px; }
+    .chart-box.h-sm { height:200px; }
+  }
 </style>
 </head>
 <body>
@@ -55,22 +75,22 @@
       <span><span class="dot" style="background:rgba(63,185,80,.9)"></span>suporte</span>
       <span><span class="dot" style="background:#58a6ff"></span>tendência</span>
     </div>
-    <canvas id="candleChart" height="110"></canvas>
+    <div class="chart-box h-lg"><canvas id="candleChart"></canvas></div>
   </div>
 
   <div class="panel">
     <h2>Histórico completo — fechamento, MM20 e MM52 semanais</h2>
-    <canvas id="priceChart" height="80"></canvas>
+    <div class="chart-box h-md"><canvas id="priceChart"></canvas></div>
   </div>
 
   <div class="panel">
     <h2>Índice de Força Relativa — RSI 14 semanal</h2>
-    <canvas id="rsiChart" height="50"></canvas>
+    <div class="chart-box h-sm"><canvas id="rsiChart"></canvas></div>
   </div>
 
   <div class="panel">
     <h2>Volume negociado (milhões, soma semanal)</h2>
-    <canvas id="volChart" height="50"></canvas>
+    <div class="chart-box h-sm"><canvas id="volChart"></canvas></div>
   </div>
 
   <footer id="footerTxt"></footer>
@@ -164,6 +184,15 @@ el('trendSub').textContent = slopePct>2?'tendência de alta':(slopePct<-2?'tend�
 const gridColor='rgba(139,148,158,.15)';
 Chart.defaults.color='#8b949e'; Chart.defaults.borderColor=gridColor;
 
+// Em telas estreitas: menos ticks no eixo X e fonte menor, para não poluir.
+const MOBILE = window.matchMedia('(max-width:640px)').matches;
+const XT_CANDLE = MOBILE ? 6 : 13;
+const XT_FULL = MOBILE ? 6 : 16;
+if (MOBILE) Chart.defaults.font.size = 10;
+// Base para todos os gráficos: a altura passa a ser controlada pelo CSS do
+// .chart-box, e não pela proporção largura/altura (que encolhia tudo no celular).
+const RESP = { responsive:true, maintainAspectRatio:false };
+
 new Chart(el('candleChart'), {
   type:'bar',
   data:{ labels:cd, datasets:[
@@ -175,12 +204,13 @@ new Chart(el('candleChart'), {
     ...pv.S.map((v,i)=>({ type:'line', label:'S'+(i+1)+' '+v.toFixed(2), data:mkLevel(v), borderColor:'rgba(63,185,80,.8)', borderWidth:1.2, borderDash:[3,3], pointRadius:0, order:0 }))
   ]},
   options:{
+    ...RESP,
     plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=>{
       if(ctx.dataset.label==='corpo'){ const i=ctx.dataIndex; return ['A: '+co[i].toFixed(2)+'  F: '+cc[i].toFixed(2), 'Máx: '+ch[i].toFixed(2)+'  Mín: '+cl[i].toFixed(2)]; }
       if(ctx.dataset.label==='sombra') return null;
       return ctx.dataset.label+': '+(Array.isArray(ctx.raw)?'':(+ctx.raw).toFixed(2));
     }}}},
-    scales:{ x:{ stacked:false, ticks:{maxTicksLimit:13} }, y:{} }
+    scales:{ x:{ stacked:false, ticks:{maxTicksLimit:XT_CANDLE} }, y:{} }
   }
 });
 
@@ -191,7 +221,7 @@ new Chart(el('priceChart'), {
     { label:'MM20', data:sma20full, borderColor:'#d29922', pointRadius:0, borderWidth:1.2, tension:.2 },
     { label:'MM52', data:sma52full, borderColor:'#bc8cff', pointRadius:0, borderWidth:1.2, tension:.2 }
   ]},
-  options:{ plugins:{legend:{display:true, labels:{boxWidth:12}}}, interaction:{mode:'index',intersect:false}, scales:{ x:{ticks:{maxTicksLimit:16}}, y:{} } }
+  options:{ ...RESP, plugins:{legend:{display:true, labels:{boxWidth:12}}}, interaction:{mode:'index',intersect:false}, scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{} } }
 });
 
 new Chart(el('rsiChart'), {
@@ -201,13 +231,13 @@ new Chart(el('rsiChart'), {
     { label:'70', data:W.d.map(()=>70), borderColor:'rgba(248,81,73,.55)', borderWidth:1, borderDash:[4,4], pointRadius:0 },
     { label:'30', data:W.d.map(()=>30), borderColor:'rgba(63,185,80,.55)', borderWidth:1, borderDash:[4,4], pointRadius:0 }
   ]},
-  options:{ plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:16}}, y:{min:0,max:100,ticks:{stepSize:25}} } }
+  options:{ ...RESP, plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{min:0,max:100,ticks:{stepSize:25}} } }
 });
 
 new Chart(el('volChart'), {
   type:'bar',
   data:{ labels:W.d, datasets:[{ label:'Volume (M)', data:W.v, backgroundColor:'rgba(88,166,255,.45)' }] },
-  options:{ plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:16}}, y:{ticks:{callback:v=>v+'M'}} } }
+  options:{ ...RESP, plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{ticks:{callback:v=>v+'M'}} } }
 });
 </script>
 </body>

@@ -12,7 +12,7 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Detecta cedo se os secrets de e-mail existem. Os passos de e-mail só
       # rodam quando existem — sem continue-on-error, que mascarava qualquer

@@ -15,17 +15,43 @@
   h1 { font-size:1.5rem; } h1 .tick { color:var(--accent); }
   .period { color:var(--muted); font-size:.9rem; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:20px; }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
-  .card .label { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; transition:transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
+  .card:hover { transform:translateY(-2px); border-color:var(--accent); box-shadow:0 6px 16px rgba(0,0,0,.35); }
+  .card.clickable { cursor:pointer; }
+  .card.clickable:active { transform:translateY(0); }
+  .card .label { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; display:flex; align-items:center; gap:4px; }
   .card .value { font-size:1.3rem; font-weight:600; margin-top:4px; }
   .card .sub { color:var(--muted); font-size:.73rem; margin-top:2px; }
   .up { color:var(--up); } .down { color:var(--down); } .gold { color:var(--gold); }
-  .panel { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:16px; }
-  .panel h2 { font-size:1rem; color:var(--muted); font-weight:500; margin-bottom:12px; }
+  .panel { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:16px; transition:border-color .15s ease; }
+  .panel:hover { border-color:#3d4855; }
+  .panel h2 { font-size:1rem; color:var(--muted); font-weight:500; margin-bottom:12px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .legend { font-size:.75rem; color:var(--muted); margin-bottom:8px; }
   .legend span { margin-right:14px; }
   .dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
   footer { color:var(--muted); font-size:.78rem; text-align:center; margin-top:24px; }
+
+  /* ícone de ajuda com tooltip nativo (title) — leve, acessível, sem JS extra */
+  .info { cursor:help; color:var(--muted); font-size:.72rem; border:1px solid var(--border); border-radius:50%; width:14px; height:14px; display:inline-flex; align-items:center; justify-content:center; line-height:1; }
+  .info:hover { color:var(--accent); border-color:var(--accent); }
+
+  /* botões de intervalo do gráfico de histórico completo */
+  .range-btns { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+  .range-btns button { background:transparent; border:1px solid var(--border); color:var(--muted); padding:4px 12px; border-radius:6px; font-size:.72rem; cursor:pointer; transition:.15s; font-family:inherit; }
+  .range-btns button:hover { border-color:var(--accent); color:var(--text); }
+  .range-btns button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+  /* painel "sobre os indicadores" */
+  details.help { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:16px; }
+  details.help summary { cursor:pointer; color:var(--text); font-size:.92rem; font-weight:500; list-style:none; }
+  details.help summary::-webkit-details-marker { display:none; }
+  details.help summary::before { content:'▸ '; color:var(--accent); }
+  details.help[open] summary::before { content:'▾ '; }
+  details.help dl { margin-top:12px; display:grid; gap:8px; }
+  details.help dt { color:var(--text); font-size:.83rem; font-weight:600; }
+  details.help dd { color:var(--muted); font-size:.8rem; margin-left:0; }
+
+  .empty-msg { color:var(--muted); font-size:.82rem; padding:24px 0; text-align:center; }
 
   /* Os gráficos têm altura fixa em CSS (com maintainAspectRatio:false no Chart.js).
      Sem isso, a altura acompanha a largura da tela e os gráficos ficam
@@ -56,11 +82,12 @@
   </header>
   <div class="cards">
     <div class="card"><div class="label">Último fechamento</div><div class="value" id="lastClose"></div><div class="sub" id="lastDate"></div></div>
-    <div class="card"><div class="label">Retorno no período</div><div class="value" id="retVal"></div><div class="sub" id="retSub"></div></div>
+    <div class="card clickable" id="retCard"><div class="label">Retorno no período <span class="info" id="retInfo" title="Retorno total anualizado (% a.a.), somando a valorização do preço com os dividendos e JCP pagos por ação. Toque no card para ver o retorno acumulado no período inteiro.">ⓘ</span></div><div class="value" id="retVal"></div><div class="sub" id="retSub"></div></div>
     <div class="card"><div class="label">Máxima</div><div class="value" id="maxVal"></div><div class="sub" id="maxDate"></div></div>
     <div class="card"><div class="label">Mínima</div><div class="value" id="minVal"></div><div class="sub" id="minDate"></div></div>
-    <div class="card"><div class="label">RSI (14 sem)</div><div class="value" id="rsiCard">—</div><div class="sub" id="rsiSub"></div></div>
-    <div class="card"><div class="label">Tendência (52 sem)</div><div class="value" id="trendCard">—</div><div class="sub" id="trendSub"></div></div>
+    <div class="card"><div class="label">RSI (14 sem) <span class="info" title="Índice de Força Relativa: acima de 70 sugere sobrecompra, abaixo de 30 sugere sobrevenda.">ⓘ</span></div><div class="value" id="rsiCard">—</div><div class="sub" id="rsiSub"></div></div>
+    <div class="card"><div class="label">Tendência (52 sem) <span class="info" title="Inclinação de uma regressão linear sobre as últimas 52 semanas de fechamento.">ⓘ</span></div><div class="value" id="trendCard">—</div><div class="sub" id="trendSub"></div></div>
+    <div class="card"><div class="label">Proventos (12 meses) <span class="info" title="Dividendos + juros sobre capital próprio (JCP) por ação pagos nos últimos 12 meses, em % do último fechamento.">ⓘ</span></div><div class="value gold" id="divYieldVal">—</div><div class="sub" id="divSub"></div></div>
     <div class="card"><div class="label">Melhor dia</div><div class="value up" id="bestVal"></div><div class="sub" id="bestDate"></div></div>
     <div class="card"><div class="label">Pior dia</div><div class="value down" id="worstVal"></div><div class="sub" id="worstDate"></div></div>
   </div>
@@ -79,8 +106,21 @@
   </div>
 
   <div class="panel">
-    <h2>Histórico completo — fechamento, MM20 e MM52 semanais</h2>
+    <h2>Histórico completo — fechamento, MM20, MM52 semanais e proventos <span class="info" title="Os triângulos dourados marcam semanas com pagamento de dividendo ou JCP; passe o mouse para ver o valor por ação.">ⓘ</span></h2>
+    <div class="range-btns" id="rangeBtns">
+      <button data-w="52">1A</button>
+      <button data-w="104">2A</button>
+      <button data-w="260">5A</button>
+      <button data-w="520">10A</button>
+      <button data-w="0" class="active">Máx</button>
+    </div>
     <div class="chart-box h-md"><canvas id="priceChart"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <h2>Proventos por ano — dividendos + JCP (R$/ação) <span class="info" title="Soma anual de dividendos e juros sobre capital próprio pagos por ação, conforme reportado pelo Yahoo Finance.">ⓘ</span></h2>
+    <div class="chart-box h-sm"><canvas id="divChart"></canvas></div>
+    <div class="empty-msg" id="divEmpty" style="display:none">Ainda não há dados de proventos neste data.js — serão preenchidos na próxima atualização automática (rotina semanal via GitHub Actions).</div>
   </div>
 
   <div class="panel">
@@ -93,20 +133,70 @@
     <div class="chart-box h-sm"><canvas id="volChart"></canvas></div>
   </div>
 
+  <details class="help">
+    <summary>Sobre os indicadores</summary>
+    <dl>
+      <dt>Retorno no período</dt>
+      <dd>Retorno total anualizado (% a.a.), somando a valorização do preço com dividendos e JCP pagos por ação, sem reinvestimento. Toque no card para alternar para o retorno acumulado no período inteiro.</dd>
+      <dt>Proventos (12 meses)</dt>
+      <dd>Dividendos + JCP por ação pagos nos últimos 12 meses, em % do último fechamento (dividend yield trailing).</dd>
+      <dt>RSI (14 semanas)</dt>
+      <dd>Índice de Força Relativa. Varia de 0 a 100; acima de 70 costuma indicar sobrecompra, abaixo de 30, sobrevenda.</dd>
+      <dt>Tendência (52 semanas)</dt>
+      <dd>Inclinação de uma regressão linear sobre o fechamento das últimas 52 semanas, anualizada em %.</dd>
+      <dt>MM20 / MM52</dt>
+      <dd>Médias móveis simples de 20 e 52 semanas do preço de fechamento.</dd>
+      <dt>Suporte / resistência</dt>
+      <dd>Níveis identificados a partir de topos e fundos (pivôs) recorrentes nas últimas 104 semanas de candles.</dd>
+    </dl>
+  </details>
+
   <footer id="footerTxt"></footer>
 </div>
 <script>
-const S = window.PETR4.stats, W = window.PETR4.W;
+const S = window.PETR4.stats, W = window.PETR4.W, DIV = window.PETR4.DIV || {y:[], v:[]};
 const fmt = n => n.toFixed(2);
+const fmtSigned = n => (n>=0?'+':'') + n.toFixed(2);
 const el = id => document.getElementById(id);
 
+// ===== compatibilidade: caso o data.js ainda não tenha sido regerado com os
+// campos novos (proventos), caímos de volta no retorno de preço puro. =====
+const hasTotalReturn = typeof S.ret_annual_pct === 'number';
+const annualRet = hasTotalReturn ? S.ret_annual_pct : S.ret_pct;
+const totalRet = hasTotalReturn ? S.ret_total_pct : S.ret_pct;
+const totalDiv = hasTotalReturn ? (S.total_dividends || 0) : 0;
+const divYieldTtm = hasTotalReturn ? (S.div_yield_ttm_pct || 0) : 0;
+
 // ===== cards e textos =====
-el('periodTxt').textContent = `${S.first_date} a ${S.last_date} · ${S.days.toLocaleString('pt-BR')} pregões · fonte: ${S.source}`;
+const updatedDate = new Date(S.updated + 'T00:00:00Z');
+const daysAgo = Math.max(0, Math.round((Date.now() - updatedDate.getTime()) / 86400000));
+const relTxt = daysAgo === 0 ? 'hoje' : daysAgo === 1 ? 'há 1 dia' : `há ${daysAgo} dias`;
+el('periodTxt').textContent = `${S.first_date} a ${S.last_date} · ${S.days.toLocaleString('pt-BR')} pregões · fonte: ${S.source} · atualizado ${relTxt}`;
+
 el('lastClose').textContent = 'R$ ' + fmt(S.last_close);
 el('lastDate').textContent = S.last_date;
-el('retVal').textContent = (S.ret_pct>=0?'+':'') + fmt(S.ret_pct) + '%';
-el('retVal').className = 'value ' + (S.ret_pct>=0?'up':'down');
-el('retSub').textContent = 'de R$ ' + fmt(S.first_close) + ' (sem proventos)';
+
+let retMode = 'annual';
+function renderRet(){
+  if (retMode === 'annual') {
+    el('retVal').textContent = fmtSigned(annualRet) + '% a.a.';
+    el('retSub').textContent = hasTotalReturn
+      ? `${fmtSigned(totalRet)}% no período · R$ ${fmt(totalDiv)}/ação em proventos`
+      : 'sem dados de proventos ainda';
+  } else {
+    el('retVal').textContent = fmtSigned(totalRet) + '%';
+    el('retSub').textContent = hasTotalReturn
+      ? `equivalente a ${fmtSigned(annualRet)}% a.a. · de R$ ${fmt(S.first_close)} + R$ ${fmt(totalDiv)} em proventos`
+      : `de R$ ${fmt(S.first_close)} (sem proventos)`;
+  }
+  el('retVal').className = 'value ' + (annualRet >= 0 ? 'up' : 'down');
+}
+renderRet();
+el('retCard').addEventListener('click', () => { retMode = retMode === 'annual' ? 'total' : 'annual'; renderRet(); });
+
+el('divYieldVal').textContent = fmt(divYieldTtm) + '%';
+el('divSub').textContent = hasTotalReturn ? `R$ ${fmt(totalDiv)}/ação acumulado no período` : 'sem dados ainda';
+
 el('maxVal').textContent = 'R$ ' + fmt(S.max_high);
 el('maxDate').textContent = S.max_high_date;
 el('minVal').textContent = 'R$ ' + fmt(S.min_low);
@@ -115,7 +205,7 @@ el('bestVal').textContent = '+' + fmt(S.best_pct) + '%';
 el('bestDate').textContent = S.best_day;
 el('worstVal').textContent = fmt(S.worst_pct) + '%';
 el('worstDate').textContent = S.worst_day;
-el('footerTxt').textContent = `Projeto Bloomberg · pipeline ETL (raw → silver → gold) · preços não ajustados por proventos · atualizado em ${S.updated} · indicadores calculados no navegador · isto não é recomendação de investimento`;
+el('footerTxt').textContent = `Projeto Bloomberg · pipeline ETL (raw → silver → gold) · preços de fechamento não ajustados por proventos — o indicador "Retorno no período" soma separadamente os dividendos e JCP pagos por ação · indicadores calculados no navegador · atualizado em ${S.updated} · isto não é recomendação de investimento`;
 
 // ===== indicadores =====
 function sma(arr, n){
@@ -157,17 +247,18 @@ function pivots(h,l,span=3){
 }
 
 // ===== janela de 104 semanas p/ candles =====
-const N = Math.min(104, W.d.length), i0 = W.d.length - N;
-const cd = W.d.slice(i0), co = W.o.slice(i0), ch = W.h.slice(i0), cl = W.l.slice(i0), cc = W.c.slice(i0);
+const N = Math.min(104, W.d.length), i0c = W.d.length - N;
+const cd = W.d.slice(i0c), co = W.o.slice(i0c), ch = W.h.slice(i0c), cl = W.l.slice(i0c), cc = W.c.slice(i0c);
 const wick = cd.map((_,i)=>[cl[i], ch[i]]);
 const body = cd.map((_,i)=>[Math.min(co[i],cc[i]), Math.max(co[i],cc[i])]);
 const bodyColor = cd.map((_,i)=> cc[i]>=co[i] ? 'rgba(63,185,80,.9)' : 'rgba(248,81,73,.9)');
 const sma20full = sma(W.c,20), sma52full = sma(W.c,52);
-const sma20win = sma20full.slice(i0);
+const sma20win = sma20full.slice(i0c);
 const trend = linreg(cc);
 const pv = pivots(ch, cl, 3);
 const mkLevel = v => cd.map(()=>v);
 const rsiFull = rsi(W.c,14);
+const divsFull = W.e || W.d.map(()=>0);
 
 // ===== cards dinâmicos (RSI e tendência) =====
 const lastRsi = rsiFull[rsiFull.length-1];
@@ -214,15 +305,66 @@ new Chart(el('candleChart'), {
   }
 });
 
-new Chart(el('priceChart'), {
+// ---- gráfico "Histórico completo": dados guardados à parte para permitir
+// os botões de intervalo (1A/2A/5A/10A/Máx) sem recriar o Chart. ----
+const priceFull = { d: W.d, c: W.c, e: divsFull, sma20: sma20full, sma52: sma52full };
+const divMarker = (dArr, cArr, eArr) => dArr.map((_,i)=> (eArr[i] > 0 ? cArr[i] : null));
+
+const priceChart = new Chart(el('priceChart'), {
   type:'line',
-  data:{ labels:W.d, datasets:[
-    { label:'Fechamento', data:W.c, borderColor:'#58a6ff', backgroundColor:'rgba(88,166,255,.10)', fill:true, tension:.25, pointRadius:0, borderWidth:1.4 },
-    { label:'MM20', data:sma20full, borderColor:'#d29922', pointRadius:0, borderWidth:1.2, tension:.2 },
-    { label:'MM52', data:sma52full, borderColor:'#bc8cff', pointRadius:0, borderWidth:1.2, tension:.2 }
+  data:{ labels:priceFull.d, datasets:[
+    { label:'Fechamento', data:priceFull.c, borderColor:'#58a6ff', backgroundColor:'rgba(88,166,255,.10)', fill:true, tension:.25, pointRadius:0, borderWidth:1.4 },
+    { label:'MM20', data:priceFull.sma20, borderColor:'#d29922', pointRadius:0, borderWidth:1.2, tension:.2 },
+    { label:'MM52', data:priceFull.sma52, borderColor:'#bc8cff', pointRadius:0, borderWidth:1.2, tension:.2 },
+    { type:'scatter', label:'Provento', data:divMarker(priceFull.d, priceFull.c, priceFull.e), backgroundColor:'#d29922', borderColor:'#d29922', pointStyle:'triangle', pointRadius:5, pointHoverRadius:7, showLine:false }
   ]},
-  options:{ ...RESP, plugins:{legend:{display:true, labels:{boxWidth:12}}}, interaction:{mode:'index',intersect:false}, scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{} } }
+  options:{
+    ...RESP,
+    plugins:{
+      legend:{display:true, labels:{boxWidth:12}},
+      tooltip:{ mode:'index', intersect:false, callbacks:{ label:(ctx)=>{
+        if(ctx.dataset.label==='Provento'){
+          if (ctx.raw===null || ctx.raw===undefined) return null;
+          const i=ctx.dataIndex; return 'Provento: R$ '+priceFull.e[i].toFixed(2)+'/ação';
+        }
+        return ctx.dataset.label+': R$ '+(+ctx.raw).toFixed(2);
+      }}}
+    },
+    interaction:{mode:'index',intersect:false},
+    scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{} }
+  }
 });
+
+function setRange(weeks){
+  const n = weeks>0 ? Math.min(weeks, priceFull.d.length) : priceFull.d.length;
+  const i0 = priceFull.d.length - n;
+  const d = priceFull.d.slice(i0), c = priceFull.c.slice(i0), e = priceFull.e.slice(i0);
+  priceChart.data.labels = d;
+  priceChart.data.datasets[0].data = c;
+  priceChart.data.datasets[1].data = priceFull.sma20.slice(i0);
+  priceChart.data.datasets[2].data = priceFull.sma52.slice(i0);
+  priceChart.data.datasets[3].data = divMarker(d, c, e);
+  priceChart.update();
+}
+document.querySelectorAll('#rangeBtns button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('#rangeBtns button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    setRange(parseInt(btn.dataset.w,10));
+  });
+});
+
+// ---- gráfico de proventos por ano ----
+if (DIV.y && DIV.y.length) {
+  new Chart(el('divChart'), {
+    type:'bar',
+    data:{ labels:DIV.y, datasets:[{ label:'Proventos R$/ação', data:DIV.v, backgroundColor:'rgba(210,153,34,.75)' }] },
+    options:{ ...RESP, plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>'R$ '+(+ctx.raw).toFixed(2)+'/ação'}}}, scales:{ y:{ ticks:{callback:v=>'R$ '+v} } } }
+  });
+} else {
+  el('divChart').style.display = 'none';
+  el('divEmpty').style.display = 'block';
+}
 
 new Chart(el('rsiChart'), {
   type:'line',

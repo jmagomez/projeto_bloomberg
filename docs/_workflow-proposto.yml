@@ -1,0 +1,124 @@
+name: Atualiza dashboard PETR4
+
+on:
+  schedule:
+    # 21:30 UTC de segunda a sexta = 18:30 em Brasília (BRT, UTC-3), depois do
+    # fechamento do pregão (17:00) e do after-market da B3 (até 17:55).
+    # Rodar todo pregão — e não só aos sábados — significa que uma resposta
+    # incompleta da fonte atrasa o dashboard em um dia, não em uma semana.
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch: {}     # permite rodar manualmente na aba Actions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atualiza-dashboard
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Detecta cedo se os secrets de e-mail existem. Os passos de e-mail só
+      # rodam quando existem — sem continue-on-error, que mascarava qualquer
+      # falha real de SMTP (senha expirada, bloqueio do Gmail etc.).
+      - name: Verifica secrets de e-mail
+        id: mail
+        env:
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+        run: |
+          if [ -n "$MAIL_USERNAME" ] && [ -n "$MAIL_PASSWORD" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Secrets MAIL_USERNAME/MAIL_PASSWORD ausentes — e-mails não serão enviados."
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # A rotina do dashboard depende apenas de `requests`. O pipeline ETL da
+      # Alpha Vantage (pandas, dotenv) não roda aqui.
+      - name: Atualiza dados
+        run: |
+          pip install -r requirements-dashboard.txt
+          python scripts/update_dashboard.py
+
+      - name: Commita se houver mudança
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.js
+          if git diff --cached --quiet; then
+            echo "Sem mudanças em data.js."
+          else
+            git commit -m "Atualiza dados do dashboard (pregão de $(python scripts/emit_summary.py | sed -n 's/^last_date=//p'))"
+            # A rotina roda em paralelo com commits manuais; um rebase evita
+            # falha de push por non-fast-forward.
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+            git push
+          fi
+
+      - name: Extrai resumo para o e-mail
+        id: resumo
+        run: python scripts/emit_summary.py >> "$GITHUB_OUTPUT"
+
+      - name: Envia e-mail com o dashboard
+        if: success() && steps.mail.outputs.ok == 'true'
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "PETR4 R$ ${{ steps.resumo.outputs.last_close }} (${{ steps.resumo.outputs.var_dia }}% no dia) — pregão de ${{ steps.resumo.outputs.last_date }}"
+          to: jmagomez@gmail.com
+          from: "Projeto Bloomberg <${{ secrets.MAIL_USERNAME }}>"
+          html_body: |
+            <h2 style="margin-bottom:4px">PETR4 — pregão de ${{ steps.resumo.outputs.last_date }}</h2>
+            <p style="margin:0 0 16px;font-size:28px;font-weight:600;color:${{ steps.resumo.outputs.cor_dia }}">
+              R$ ${{ steps.resumo.outputs.last_close }}
+              <span style="font-size:16px">${{ steps.resumo.outputs.seta_dia }} ${{ steps.resumo.outputs.var_dia }}% no dia</span>
+            </p>
+            <table cellpadding="6" style="border-collapse:collapse;font-size:14px">
+              <tr><td>Abertura</td><td align="right"><b>R$ ${{ steps.resumo.outputs.day_open }}</b></td></tr>
+              <tr><td>Máxima do dia</td><td align="right"><b>R$ ${{ steps.resumo.outputs.day_high }}</b></td></tr>
+              <tr><td>Mínima do dia</td><td align="right"><b>R$ ${{ steps.resumo.outputs.day_low }}</b></td></tr>
+              <tr><td>Fechamento anterior</td><td align="right">R$ ${{ steps.resumo.outputs.prev_close }}</td></tr>
+              <tr><td>Volume do dia</td><td align="right">${{ steps.resumo.outputs.day_volume }} M</td></tr>
+              <tr><td>Variação na semana</td><td align="right">${{ steps.resumo.outputs.var_semana }}%</td></tr>
+              <tr><td>Proventos (12 meses)</td><td align="right">${{ steps.resumo.outputs.div_yield }}%</td></tr>
+              <tr><td>Retorno total desde 2010</td><td align="right">${{ steps.resumo.outputs.ret_annual }}% a.a.</td></tr>
+              <tr><td>Máxima histórica · mínima</td><td align="right">R$ ${{ steps.resumo.outputs.max_high }} · R$ ${{ steps.resumo.outputs.min_low }}</td></tr>
+            </table>
+            <p style="margin-top:16px"><a href="https://jmagomez.github.io/projeto_bloomberg/">Abrir o dashboard completo</a> — candles diários e semanais, suporte/resistência, tendência, médias móveis, RSI, proventos e volume.</p>
+            <p style="color:#888;font-size:12px">${{ steps.resumo.outputs.days }} pregões desde 2010 · fonte: Yahoo Finance · rotina automática via GitHub Actions · não é recomendação de investimento</p>
+
+      - name: Notifica falha por e-mail
+        if: failure() && steps.mail.outputs.ok == 'true'
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "⚠️ Rotina do dashboard PETR4 falhou (run ${{ github.run_number }})"
+          to: jmagomez@gmail.com
+          from: "Projeto Bloomberg <${{ secrets.MAIL_USERNAME }}>"
+          body: |
+            A rotina do dashboard PETR4 falhou e NADA foi publicado — o dashboard
+            segue exibindo o último dado íntegro.
+
+            Causa mais provável: a fonte (Yahoo Finance) respondeu sem o último
+            pregão fechado, e a rotina se recusa a publicar dado defasado.
+            Nesse caso, basta reexecutar o workflow manualmente mais tarde.
+
+            Log completo: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

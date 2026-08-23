@@ -3,22 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Dashboard de PETR4.SA (Petrobras PN) com candles diários e semanais, proventos, RSI, médias móveis e volume — atualizado automaticamente a cada pregão.">
 <title>PETR4.SA — Dashboard | Projeto Bloomberg</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="data.js"></script>
 <style>
-  :root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --up:#3fb950; --down:#f85149; --accent:#58a6ff; --gold:#d29922; }
+  :root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --up:#3fb950; --down:#f85149; --accent:#58a6ff; --gold:#d29922; --warn-bg:#3d2c07; --warn-border:#9e6a03; --warn-text:#f0c674; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; padding:24px; }
   .container { max-width:1100px; margin:0 auto; }
-  header { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+  header { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
   h1 { font-size:1.5rem; } h1 .tick { color:var(--accent); }
   .period { color:var(--muted); font-size:.9rem; }
+  .subhead { color:var(--muted); font-size:.8rem; margin-bottom:16px; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:20px; }
   .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; transition:transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
   .card:hover { transform:translateY(-2px); border-color:var(--accent); box-shadow:0 6px 16px rgba(0,0,0,.35); }
   .card.clickable { cursor:pointer; }
   .card.clickable:active { transform:translateY(0); }
+  .card.highlight { border-color:#3d4d63; }
   .card .label { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; display:flex; align-items:center; gap:4px; }
   .card .value { font-size:1.3rem; font-weight:600; margin-top:4px; }
   .card .sub { color:var(--muted); font-size:.73rem; margin-top:2px; }
@@ -31,11 +34,15 @@
   .dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
   footer { color:var(--muted); font-size:.78rem; text-align:center; margin-top:24px; }
 
+  /* aviso de defasagem: só aparece quando os dados podem não conter o último pregão */
+  .stale { display:none; background:var(--warn-bg); border:1px solid var(--warn-border); color:var(--warn-text); border-radius:10px; padding:12px 16px; margin-bottom:16px; font-size:.85rem; line-height:1.45; }
+  .stale strong { color:#ffd75e; }
+
   /* ícone de ajuda com tooltip nativo (title) — leve, acessível, sem JS extra */
   .info { cursor:help; color:var(--muted); font-size:.72rem; border:1px solid var(--border); border-radius:50%; width:14px; height:14px; display:inline-flex; align-items:center; justify-content:center; line-height:1; }
   .info:hover { color:var(--accent); border-color:var(--accent); }
 
-  /* botões de intervalo do gráfico de histórico completo */
+  /* botões de intervalo dos gráficos */
   .range-btns { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
   .range-btns button { background:transparent; border:1px solid var(--border); color:var(--muted); padding:4px 12px; border-radius:6px; font-size:.72rem; cursor:pointer; transition:.15s; font-family:inherit; }
   .range-btns button:hover { border-color:var(--accent); color:var(--text); }
@@ -72,6 +79,10 @@
     .chart-box.h-md { height:280px; }
     .chart-box.h-sm { height:200px; }
   }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition:none !important; }
+    .card:hover { transform:none; }
+  }
 </style>
 </head>
 <body>
@@ -80,16 +91,42 @@
     <h1><span class="tick">PETR4.SA</span> — Petrobras PN</h1>
     <span class="period" id="periodTxt"></span>
   </header>
+  <div class="subhead" id="freshTxt"></div>
+
+  <div class="stale" id="staleBox"></div>
+
   <div class="cards">
-    <div class="card"><div class="label">Último fechamento</div><div class="value" id="lastClose"></div><div class="sub" id="lastDate"></div></div>
+    <div class="card highlight"><div class="label">Último pregão</div><div class="value" id="lastClose"></div><div class="sub" id="lastDate"></div></div>
+    <div class="card highlight"><div class="label">Variação no dia <span class="info" title="Fechamento do último pregão contra o fechamento do pregão anterior.">ⓘ</span></div><div class="value" id="dayChange">—</div><div class="sub" id="dayChangeSub"></div></div>
     <div class="card clickable" id="retCard"><div class="label">Retorno no período <span class="info" id="retInfo" title="Retorno total anualizado (% a.a.), somando a valorização do preço com os dividendos e JCP pagos por ação. Toque no card para ver o retorno acumulado no período inteiro.">ⓘ</span></div><div class="value" id="retVal"></div><div class="sub" id="retSub"></div></div>
     <div class="card"><div class="label">Máxima</div><div class="value" id="maxVal"></div><div class="sub" id="maxDate"></div></div>
     <div class="card"><div class="label">Mínima</div><div class="value" id="minVal"></div><div class="sub" id="minDate"></div></div>
     <div class="card"><div class="label">RSI (14 sem) <span class="info" title="Índice de Força Relativa: acima de 70 sugere sobrecompra, abaixo de 30 sugere sobrevenda.">ⓘ</span></div><div class="value" id="rsiCard">—</div><div class="sub" id="rsiSub"></div></div>
     <div class="card"><div class="label">Tendência (52 sem) <span class="info" title="Inclinação de uma regressão linear sobre as últimas 52 semanas de fechamento.">ⓘ</span></div><div class="value" id="trendCard">—</div><div class="sub" id="trendSub"></div></div>
     <div class="card"><div class="label">Proventos (12 meses) <span class="info" title="Dividendos + juros sobre capital próprio (JCP) por ação pagos nos últimos 12 meses, em % do último fechamento.">ⓘ</span></div><div class="value gold" id="divYieldVal">—</div><div class="sub" id="divSub"></div></div>
+    <div class="card"><div class="label">Volatilidade <span class="info" title="Desvio-padrão das variações diárias de fechamento em todo o período. A versão anualizada multiplica por raiz de 252 pregões.">ⓘ</span></div><div class="value" id="volVal">—</div><div class="sub" id="volSub"></div></div>
+    <div class="card"><div class="label">Volume</div><div class="value" id="volumeVal">—</div><div class="sub" id="volumeSub"></div></div>
     <div class="card"><div class="label">Melhor dia</div><div class="value up" id="bestVal"></div><div class="sub" id="bestDate"></div></div>
     <div class="card"><div class="label">Pior dia</div><div class="value down" id="worstVal"></div><div class="sub" id="worstDate"></div></div>
+  </div>
+
+  <div class="panel" id="dailyPanel">
+    <h2>Candlestick diário — MM9 e MM21 <span class="info" title="Um candle por pregão. As médias móveis são de 9 e 21 pregões.">ⓘ</span></h2>
+    <div class="legend">
+      <span><span class="dot" style="background:#3fb950"></span>alta</span>
+      <span><span class="dot" style="background:#f85149"></span>baixa</span>
+      <span><span class="dot" style="background:#d29922"></span>MM9</span>
+      <span><span class="dot" style="background:#bc8cff"></span>MM21</span>
+    </div>
+    <div class="range-btns" id="dailyRangeBtns">
+      <button data-d="21">1M</button>
+      <button data-d="63" class="active">3M</button>
+      <button data-d="126">6M</button>
+      <button data-d="252">1A</button>
+      <button data-d="0">Máx</button>
+    </div>
+    <div class="chart-box h-lg"><canvas id="dailyChart"></canvas></div>
+    <div class="empty-msg" id="dailyEmpty" style="display:none">Este data.js ainda não traz a série diária — ela é preenchida na próxima execução da rotina.</div>
   </div>
 
   <div class="panel">
@@ -120,7 +157,7 @@
   <div class="panel">
     <h2>Proventos por ano — dividendos + JCP (R$/ação) <span class="info" title="Soma anual de dividendos e juros sobre capital próprio pagos por ação, conforme reportado pelo Yahoo Finance.">ⓘ</span></h2>
     <div class="chart-box h-sm"><canvas id="divChart"></canvas></div>
-    <div class="empty-msg" id="divEmpty" style="display:none">Ainda não há dados de proventos neste data.js — serão preenchidos na próxima atualização automática (rotina semanal via GitHub Actions).</div>
+    <div class="empty-msg" id="divEmpty" style="display:none">Ainda não há dados de proventos neste data.js — serão preenchidos na próxima atualização automática.</div>
   </div>
 
   <div class="panel">
@@ -136,16 +173,20 @@
   <details class="help">
     <summary>Sobre os indicadores</summary>
     <dl>
+      <dt>Último pregão e variação no dia</dt>
+      <dd>Fechamento da sessão mais recente da B3 presente nos dados, e sua variação contra o fechamento anterior. A rotina só publica se a própria fonte confirmar que aquele é o último pregão fechado — caso contrário ela falha e mantém o dado anterior.</dd>
       <dt>Retorno no período</dt>
       <dd>Retorno total anualizado (% a.a.), somando a valorização do preço com dividendos e JCP pagos por ação, sem reinvestimento. Toque no card para alternar para o retorno acumulado no período inteiro.</dd>
       <dt>Proventos (12 meses)</dt>
       <dd>Dividendos + JCP por ação pagos nos últimos 12 meses, em % do último fechamento (dividend yield trailing).</dd>
+      <dt>Volatilidade</dt>
+      <dd>Desvio-padrão das variações diárias de fechamento em todo o período; a versão anualizada multiplica por raiz de 252 pregões.</dd>
       <dt>RSI (14 semanas)</dt>
       <dd>Índice de Força Relativa. Varia de 0 a 100; acima de 70 costuma indicar sobrecompra, abaixo de 30, sobrevenda.</dd>
       <dt>Tendência (52 semanas)</dt>
       <dd>Inclinação de uma regressão linear sobre o fechamento das últimas 52 semanas, anualizada em %.</dd>
-      <dt>MM20 / MM52</dt>
-      <dd>Médias móveis simples de 20 e 52 semanas do preço de fechamento.</dd>
+      <dt>MM9 / MM21 / MM20 / MM52</dt>
+      <dd>Médias móveis simples. MM9 e MM21 sobre pregões diários; MM20 e MM52 sobre fechamentos semanais.</dd>
       <dt>Suporte / resistência</dt>
       <dd>Níveis identificados a partir de topos e fundos (pivôs) recorrentes nas últimas 104 semanas de candles.</dd>
     </dl>
@@ -154,27 +195,96 @@
   <footer id="footerTxt"></footer>
 </div>
 <script>
-const S = window.PETR4.stats, W = window.PETR4.W, DIV = window.PETR4.DIV || {y:[], v:[]};
-const fmt = n => n.toFixed(2);
-const fmtSigned = n => (n>=0?'+':'') + n.toFixed(2);
+(function () {
+'use strict';
+
+// A biblioteca de gráficos vem de CDN; se ela não carregar (rede corporativa,
+// bloqueio de anúncios), os cards numéricos continuam sendo preenchidos e a
+// página avisa em vez de quebrar.
+const SEM_CHART = typeof Chart === 'undefined';
+
+const P = window.PETR4 || {};
+const S = P.stats || {}, W = P.W || {d:[],o:[],h:[],l:[],c:[],v:[],e:[]}, DIV = P.DIV || {y:[], v:[]};
+const D = P.D || null;                      // série diária (pode faltar em data.js antigos)
+// Números no formato brasileiro (vírgula decimal) — a página é em pt-BR e os
+// valores são em reais.
+const NUM2 = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const NUM1 = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const fmt = n => NUM2.format(Number(n));
+const fmt1 = n => NUM1.format(Number(n));
+const fmtSigned = n => (Number(n) >= 0 ? '+' : '') + NUM2.format(Number(n));
 const el = id => document.getElementById(id);
 
 // ===== compatibilidade: caso o data.js ainda não tenha sido regerado com os
-// campos novos (proventos), caímos de volta no retorno de preço puro. =====
+// campos novos, caímos de volta no que existir. =====
 const hasTotalReturn = typeof S.ret_annual_pct === 'number';
 const annualRet = hasTotalReturn ? S.ret_annual_pct : S.ret_pct;
 const totalRet = hasTotalReturn ? S.ret_total_pct : S.ret_pct;
 const totalDiv = hasTotalReturn ? (S.total_dividends || 0) : 0;
 const divYieldTtm = hasTotalReturn ? (S.div_yield_ttm_pct || 0) : 0;
+const hasDaily = !!(D && D.d && D.d.length > 1);
+const hasDayChange = typeof S.day_change_pct === 'number';
 
-// ===== cards e textos =====
-const updatedDate = new Date(S.updated + 'T00:00:00Z');
-const daysAgo = Math.max(0, Math.round((Date.now() - updatedDate.getTime()) / 86400000));
-const relTxt = daysAgo === 0 ? 'hoje' : daysAgo === 1 ? 'há 1 dia' : `há ${daysAgo} dias`;
-el('periodTxt').textContent = `${S.first_date} a ${S.last_date} · ${S.days.toLocaleString('pt-BR')} pregões · fonte: ${S.source} · atualizado ${relTxt}`;
+// ===== cabeçalho: separa "último pregão" de "quando a rotina rodou" =====
+// Antes o cabeçalho mostrava só "atualizado há N dias" a partir de S.updated,
+// que é a data da execução — o que escondia justamente o caso em que a rotina
+// rodou mas os dados vieram defasados.
+el('periodTxt').textContent =
+  `${S.first_date} a ${S.last_date} · ${(S.days || 0).toLocaleString('pt-BR')} pregões · fonte: ${S.source}`;
 
+const hojeSP = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+const horaSP = Number(new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false }));
+
+function diasUteisEntre(inicioISO, fimISO) {
+  // Conta dias de semana estritamente entre as duas datas (exclusivo dos dois
+  // extremos). Não conhece feriados da B3 — por isso o aviso fala em "pode".
+  let n = 0;
+  const d = new Date(inicioISO + 'T12:00:00Z');
+  const fim = new Date(fimISO + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 1);
+  while (d < fim) {
+    const dow = d.getUTCDay();
+    if (dow !== 0 && dow !== 6) n++;
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return n;
+}
+
+let pregoesFaltando = 0;
+if (S.last_date && S.last_date < hojeSP) {
+  pregoesFaltando = diasUteisEntre(S.last_date, hojeSP);
+  const dowHoje = new Date(hojeSP + 'T12:00:00Z').getUTCDay();
+  // depois das 19:30 em Brasília o pregão do próprio dia já deveria estar nos dados
+  if (dowHoje !== 0 && dowHoje !== 6 && horaSP >= 19) pregoesFaltando++;
+}
+
+el('freshTxt').textContent = S.updated_utc
+  ? `Rotina executada em ${S.updated_utc} (UTC) · dados até o pregão de ${S.last_date}`
+  : `Rotina executada em ${S.updated} · dados até o pregão de ${S.last_date}`;
+
+if (pregoesFaltando > 0) {
+  const box = el('staleBox');
+  box.style.display = 'block';
+  box.innerHTML =
+    `<strong>Possível defasagem.</strong> Os dados vão até o pregão de <strong>${S.last_date}</strong>, ` +
+    `mas desde então já houve ${pregoesFaltando} dia(s) útil(eis). Pode ser feriado na B3 — ` +
+    `ou a rotina de atualização pode não ter rodado. Confira a aba Actions do repositório.`;
+}
+
+// ===== cards =====
 el('lastClose').textContent = 'R$ ' + fmt(S.last_close);
 el('lastDate').textContent = S.last_date;
+
+if (hasDayChange) {
+  el('dayChange').textContent = fmtSigned(S.day_change_pct) + '%';
+  el('dayChange').className = 'value ' + (S.day_change_pct >= 0 ? 'up' : 'down');
+  el('dayChangeSub').textContent =
+    `ant. R$ ${fmt(S.prev_close)} · abert. R$ ${fmt(S.day_open)} · ` +
+    `${fmt(S.day_low)}–${fmt(S.day_high)}`;
+} else {
+  el('dayChange').textContent = '—';
+  el('dayChangeSub').textContent = 'disponível na próxima atualização';
+}
 
 let retMode = 'annual';
 function renderRet(){
@@ -205,7 +315,32 @@ el('bestVal').textContent = '+' + fmt(S.best_pct) + '%';
 el('bestDate').textContent = S.best_day;
 el('worstVal').textContent = fmt(S.worst_pct) + '%';
 el('worstDate').textContent = S.worst_day;
-el('footerTxt').textContent = `Projeto Bloomberg · pipeline ETL (raw → silver → gold) · preços de fechamento não ajustados por proventos — o indicador "Retorno no período" soma separadamente os dividendos e JCP pagos por ação · indicadores calculados no navegador · atualizado em ${S.updated} · isto não é recomendação de investimento`;
+
+// cards novos: aproveitam estatísticas que já eram calculadas e nunca exibidas
+if (typeof S.vol_pct === 'number') {
+  el('volVal').textContent = fmt(S.vol_pct) + '% ao dia';
+  el('volSub').textContent = typeof S.vol_annual_pct === 'number'
+    ? `≈ ${fmt1(S.vol_annual_pct)}% ao ano (252 pregões)`
+    : 'desvio-padrão das variações diárias';
+}
+if (typeof S.avg_vol_M === 'number') {
+  el('volumeVal').textContent = fmt1(typeof S.day_volume_M === 'number' ? S.day_volume_M : S.avg_vol_M) + ' M';
+  el('volumeSub').textContent = typeof S.day_volume_M === 'number'
+    ? `no pregão de ${S.last_date} · média do período ${fmt1(S.avg_vol_M)} M`
+    : 'média diária do período';
+}
+
+el('footerTxt').textContent =
+  `Projeto Bloomberg · pipeline ETL (raw → silver → gold) · preços de fechamento não ajustados por ` +
+  `proventos — o indicador "Retorno no período" soma separadamente os dividendos e JCP pagos por ação · ` +
+  `indicadores calculados no navegador · rotina executada em ${S.updated} · isto não é recomendação de investimento`;
+
+if (SEM_CHART) {
+  el('footerTxt').textContent =
+    'Não foi possível carregar a biblioteca de gráficos (CDN bloqueado?). Os números dos cards acima continuam válidos. — '
+    + el('footerTxt').textContent;
+  return;
+}
 
 // ===== indicadores =====
 function sma(arr, n){
@@ -246,7 +381,75 @@ function pivots(h,l,span=3){
   return { R: pick(res,true), S: pick(sup,false) };
 }
 
-// ===== janela de 104 semanas p/ candles =====
+const gridColor='rgba(139,148,158,.15)';
+Chart.defaults.color='#8b949e'; Chart.defaults.borderColor=gridColor;
+const MOBILE = window.matchMedia('(max-width:640px)').matches;
+const XT_CANDLE = MOBILE ? 6 : 13;
+const XT_FULL = MOBILE ? 6 : 16;
+if (MOBILE) Chart.defaults.font.size = 10;
+const RESP = { responsive:true, maintainAspectRatio:false };
+
+// ===== candlestick DIÁRIO (novo) =====
+// É aqui que o último pregão aparece isolado, e não diluído dentro do candle
+// da semana corrente.
+if (!hasDaily) {
+  el('dailyChart').style.display = 'none';
+  el('dailyRangeBtns').style.display = 'none';
+  el('dailyEmpty').style.display = 'block';
+} else {
+  const sma9Full = sma(D.c, 9), sma21Full = sma(D.c, 21);
+  const dailyChart = new Chart(el('dailyChart'), {
+    type:'bar',
+    data:{ labels:[], datasets:[
+      { label:'corpo', data:[], backgroundColor:[], barPercentage:.75, categoryPercentage:1, order:2 },
+      { label:'sombra', data:[], backgroundColor:[], barPercentage:.14, categoryPercentage:1, order:3 },
+      { type:'line', label:'MM9', data:[], borderColor:'#d29922', borderWidth:1.6, pointRadius:0, tension:.2, order:1 },
+      { type:'line', label:'MM21', data:[], borderColor:'#bc8cff', borderWidth:1.6, pointRadius:0, tension:.2, order:1 }
+    ]},
+    options:{
+      ...RESP,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=>{
+        const w = dailyChart.$win;
+        if(ctx.dataset.label==='corpo'){
+          const i=ctx.dataIndex;
+          return [
+            'A: '+fmt(w.o[i])+'  F: '+fmt(w.c[i]),
+            'Máx: '+fmt(w.h[i])+'  Mín: '+fmt(w.l[i]),
+            'Vol: '+fmt1(w.v[i])+' M'
+          ];
+        }
+        if(ctx.dataset.label==='sombra') return null;
+        return ctx.dataset.label+': '+(Array.isArray(ctx.raw)?'':fmt(ctx.raw));
+      }}}},
+      scales:{ x:{ stacked:true, ticks:{maxTicksLimit:XT_CANDLE} }, y:{ stacked:false, beginAtZero:false, grace:'6%' } }
+    }
+  });
+
+  function setDailyRange(nDias){
+    const n = nDias>0 ? Math.min(nDias, D.d.length) : D.d.length;
+    const i0 = D.d.length - n;
+    const w = { d:D.d.slice(i0), o:D.o.slice(i0), h:D.h.slice(i0), l:D.l.slice(i0), c:D.c.slice(i0), v:D.v.slice(i0) };
+    dailyChart.$win = w;
+    dailyChart.data.labels = w.d;
+    dailyChart.data.datasets[0].data = w.d.map((_,i)=>[Math.min(w.o[i],w.c[i]), Math.max(w.o[i],w.c[i])]);
+    dailyChart.data.datasets[0].backgroundColor = w.d.map((_,i)=> w.c[i]>=w.o[i] ? 'rgba(63,185,80,.9)' : 'rgba(248,81,73,.9)');
+    dailyChart.data.datasets[1].data = w.d.map((_,i)=>[w.l[i], w.h[i]]);
+    dailyChart.data.datasets[1].backgroundColor = dailyChart.data.datasets[0].backgroundColor;
+    dailyChart.data.datasets[2].data = sma9Full.slice(i0);
+    dailyChart.data.datasets[3].data = sma21Full.slice(i0);
+    dailyChart.update();
+  }
+  setDailyRange(63);
+  document.querySelectorAll('#dailyRangeBtns button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#dailyRangeBtns button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      setDailyRange(parseInt(btn.dataset.d,10));
+    });
+  });
+}
+
+// ===== janela de 104 semanas p/ candles semanais =====
 const N = Math.min(104, W.d.length), i0c = W.d.length - N;
 const cd = W.d.slice(i0c), co = W.o.slice(i0c), ch = W.h.slice(i0c), cl = W.l.slice(i0c), cc = W.c.slice(i0c);
 const wick = cd.map((_,i)=>[cl[i], ch[i]]);
@@ -262,51 +465,37 @@ const divsFull = W.e || W.d.map(()=>0);
 
 // ===== cards dinâmicos (RSI e tendência) =====
 const lastRsi = rsiFull[rsiFull.length-1];
-el('rsiCard').textContent = lastRsi;
+el('rsiCard').textContent = fmt1(lastRsi);
 el('rsiCard').className = 'value ' + (lastRsi>70?'down':(lastRsi<30?'up':'gold'));
 el('rsiSub').textContent = lastRsi>70?'sobrecomprado':(lastRsi<30?'sobrevendido':'neutro');
 const t52 = linreg(W.c.slice(-52));
 const slopePct = ((t52[t52.length-1]/t52[0]-1)*100);
-el('trendCard').textContent = (slopePct>0?'+':'')+slopePct.toFixed(1)+'%';
+el('trendCard').textContent = (slopePct>0?'+':'')+fmt1(slopePct)+'%';
 el('trendCard').className = 'value ' + (slopePct>2?'up':(slopePct<-2?'down':'gold'));
 el('trendSub').textContent = slopePct>2?'tendência de alta':(slopePct<-2?'tendência de baixa':'lateral');
-
-// ===== charts =====
-const gridColor='rgba(139,148,158,.15)';
-Chart.defaults.color='#8b949e'; Chart.defaults.borderColor=gridColor;
-
-// Em telas estreitas: menos ticks no eixo X e fonte menor, para não poluir.
-const MOBILE = window.matchMedia('(max-width:640px)').matches;
-const XT_CANDLE = MOBILE ? 6 : 13;
-const XT_FULL = MOBILE ? 6 : 16;
-if (MOBILE) Chart.defaults.font.size = 10;
-// Base para todos os gráficos: a altura passa a ser controlada pelo CSS do
-// .chart-box, e não pela proporção largura/altura (que encolhia tudo no celular).
-const RESP = { responsive:true, maintainAspectRatio:false };
 
 new Chart(el('candleChart'), {
   type:'bar',
   data:{ labels:cd, datasets:[
     { label:'corpo', data:body, backgroundColor:bodyColor, barPercentage:.75, categoryPercentage:1, order:2 },
-    { label:'sombra', data:wick, backgroundColor:'rgba(139,148,158,.6)', barPercentage:.12, categoryPercentage:1, order:3 },
+    { label:'sombra', data:wick, backgroundColor:bodyColor, barPercentage:.14, categoryPercentage:1, order:3 },
     { type:'line', label:'MM20', data:sma20win, borderColor:'#d29922', borderWidth:1.6, pointRadius:0, tension:.2, order:1 },
     { type:'line', label:'Tendência', data:trend, borderColor:'#58a6ff', borderWidth:1.6, borderDash:[6,4], pointRadius:0, order:1 },
-    ...pv.R.map((v,i)=>({ type:'line', label:'R'+(i+1)+' '+v.toFixed(2), data:mkLevel(v), borderColor:'rgba(248,81,73,.8)', borderWidth:1.2, borderDash:[3,3], pointRadius:0, order:0 })),
-    ...pv.S.map((v,i)=>({ type:'line', label:'S'+(i+1)+' '+v.toFixed(2), data:mkLevel(v), borderColor:'rgba(63,185,80,.8)', borderWidth:1.2, borderDash:[3,3], pointRadius:0, order:0 }))
+    ...pv.R.map((v,i)=>({ type:'line', label:'R'+(i+1)+' '+fmt(v), data:mkLevel(v), borderColor:'rgba(248,81,73,.8)', borderWidth:1.2, borderDash:[3,3], pointRadius:0, order:0 })),
+    ...pv.S.map((v,i)=>({ type:'line', label:'S'+(i+1)+' '+fmt(v), data:mkLevel(v), borderColor:'rgba(63,185,80,.8)', borderWidth:1.2, borderDash:[3,3], pointRadius:0, order:0 }))
   ]},
   options:{
     ...RESP,
     plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=>{
-      if(ctx.dataset.label==='corpo'){ const i=ctx.dataIndex; return ['A: '+co[i].toFixed(2)+'  F: '+cc[i].toFixed(2), 'Máx: '+ch[i].toFixed(2)+'  Mín: '+cl[i].toFixed(2)]; }
+      if(ctx.dataset.label==='corpo'){ const i=ctx.dataIndex; return ['A: '+fmt(co[i])+'  F: '+fmt(cc[i]), 'Máx: '+fmt(ch[i])+'  Mín: '+fmt(cl[i])]; }
       if(ctx.dataset.label==='sombra') return null;
-      return ctx.dataset.label+': '+(Array.isArray(ctx.raw)?'':(+ctx.raw).toFixed(2));
+      return ctx.dataset.label+': '+(Array.isArray(ctx.raw)?'':fmt(ctx.raw));
     }}}},
-    scales:{ x:{ stacked:false, ticks:{maxTicksLimit:XT_CANDLE} }, y:{} }
+    scales:{ x:{ stacked:true, ticks:{maxTicksLimit:XT_CANDLE} }, y:{ stacked:false, beginAtZero:false, grace:'6%' } }
   }
 });
 
-// ---- gráfico "Histórico completo": dados guardados à parte para permitir
-// os botões de intervalo (1A/2A/5A/10A/Máx) sem recriar o Chart. ----
+// ---- gráfico "Histórico completo" ----
 const priceFull = { d: W.d, c: W.c, e: divsFull, sma20: sma20full, sma52: sma52full };
 const divMarker = (dArr, cArr, eArr) => dArr.map((_,i)=> (eArr[i] > 0 ? cArr[i] : null));
 
@@ -325,9 +514,9 @@ const priceChart = new Chart(el('priceChart'), {
       tooltip:{ mode:'index', intersect:false, callbacks:{ label:(ctx)=>{
         if(ctx.dataset.label==='Provento'){
           if (ctx.raw===null || ctx.raw===undefined) return null;
-          const i=ctx.dataIndex; return 'Provento: R$ '+priceFull.e[i].toFixed(2)+'/ação';
+          const i=ctx.dataIndex; return 'Provento: R$ '+fmt(priceFull.e[i])+'/ação';
         }
-        return ctx.dataset.label+': R$ '+(+ctx.raw).toFixed(2);
+        return ctx.dataset.label+': R$ '+fmt(ctx.raw);
       }}}
     },
     interaction:{mode:'index',intersect:false},
@@ -359,7 +548,7 @@ if (DIV.y && DIV.y.length) {
   new Chart(el('divChart'), {
     type:'bar',
     data:{ labels:DIV.y, datasets:[{ label:'Proventos R$/ação', data:DIV.v, backgroundColor:'rgba(210,153,34,.75)' }] },
-    options:{ ...RESP, plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>'R$ '+(+ctx.raw).toFixed(2)+'/ação'}}}, scales:{ y:{ ticks:{callback:v=>'R$ '+v} } } }
+    options:{ ...RESP, plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>'R$ '+fmt(ctx.raw)+'/ação'}}}, scales:{ y:{ ticks:{callback:v=>'R$ '+fmt1(v)} } } }
   });
 } else {
   el('divChart').style.display = 'none';
@@ -379,8 +568,10 @@ new Chart(el('rsiChart'), {
 new Chart(el('volChart'), {
   type:'bar',
   data:{ labels:W.d, datasets:[{ label:'Volume (M)', data:W.v, backgroundColor:'rgba(88,166,255,.45)' }] },
-  options:{ ...RESP, plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{ticks:{callback:v=>v+'M'}} } }
+  options:{ ...RESP, plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{ticks:{callback:v=>fmt1(v)+' M'}} } }
 });
+
+})();
 </script>
 </body>
 </html>

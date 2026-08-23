@@ -1,0 +1,5 @@
+# Dependências mínimas da rotina do dashboard (scripts/update_dashboard.py).
+# O pipeline ETL da Alpha Vantage usa pandas e python-dotenv; a rotina do
+# dashboard não — instalar só o necessário deixa o job mais rápido e reduz a
+# superfície de dependências no runner.
+requests>=2.32

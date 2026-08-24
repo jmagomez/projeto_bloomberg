@@ -1,3 +1,7 @@
-pandas>=2.2
-requests>=2.32
-python-dotenv>=1.0
+# Versões fixadas (pin). O motivo: com `>=` o pip instalava sempre a versão mais
+# recente, então nunca se sabia em qual versão a rotina realmente rodou num dia
+# específico — e uma quebra a montante chegava sem aviso. Com `==`, cada
+# atualização vira um PR do Dependabot que passa pelo CI antes de entrar.
+pandas==3.0.5
+requests==2.34.2
+python-dotenv==1.2.3

@@ -2,4 +2,7 @@
 # O pipeline ETL da Alpha Vantage usa pandas e python-dotenv; a rotina do
 # dashboard não — instalar só o necessário deixa o job mais rápido e reduz a
 # superfície de dependências no runner.
-requests>=2.32
+#
+# Versão fixada: a rotina roda todo dia útil sem supervisão, então é melhor
+# saber exatamente o que está instalado do que pegar a mais nova em silêncio.
+requests==2.34.2

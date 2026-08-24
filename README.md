@@ -20,8 +20,8 @@ projeto_bloomberg/
 ├── tests/                    # testes sem rede das agregações e da validação
 ├── data/
 │   ├── raw/     # dados brutos (JSON) — inclui um arquivo de exemplo
-│   ├── silver/  # dados tratados (CSV)
-│   └── gold/    # banco de dados (SQLite)
+│   ├── silver/  # dados tratados (CSV) — gerado, fora do controle de versão
+│   └── gold/    # banco de dados (SQLite) — gerado, fora do controle de versão
 ├── data.js      # payload do dashboard, gerado pela rotina
 ├── index.html   # dashboard interativo (GitHub Pages)
 └── requirements*.txt
@@ -72,7 +72,14 @@ Instale as dependências:
 ```bash
 pip install -r requirements.txt              # pipeline ETL completo
 pip install -r requirements-dashboard.txt    # só a rotina do dashboard
+pip install -r requirements-dev.txt          # lint e testes
 ```
+
+As versões são **fixadas com `==`**. Com `>=`, o pip instalava sempre a mais
+recente e não havia como saber em que versão a rotina rodou num dia específico —
+uma quebra a montante chegaria sem aviso, direto em produção. Com o pin, cada
+atualização vira um PR do Dependabot (agrupado, semanal) que passa pelo CI antes
+de entrar.
 
 ### Atualizar o dashboard localmente
 

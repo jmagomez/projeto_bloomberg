@@ -130,8 +130,8 @@
   <div class="panel" id="dailyPanel">
     <h2>Candlestick diário — MM9 e MM21 <span class="info" title="Um candle por pregão. As médias móveis são de 9 e 21 pregões.">ⓘ</span></h2>
     <div class="legend">
-      <span><span class="dot" style="background:#3fb950"></span>alta</span>
-      <span><span class="dot" style="background:#f85149"></span>baixa</span>
+      <span><span class="dot" style="background:#3fb950"></span>alta (corpo cheio)</span>
+      <span><span class="dot" style="border:1.5px solid #f85149"></span>baixa (corpo vazado)</span>
       <span><span class="dot" style="background:#d29922"></span>MM9</span>
       <span><span class="dot" style="background:#ffdf5d"></span>MM21</span>
     </div>
@@ -151,8 +151,8 @@
   <div class="panel">
     <h2>Candlestick semanal — últimas 104 semanas · suporte, resistência e tendência</h2>
     <div class="legend">
-      <span><span class="dot" style="background:#3fb950"></span>alta</span>
-      <span><span class="dot" style="background:#f85149"></span>baixa</span>
+      <span><span class="dot" style="background:#3fb950"></span>alta (corpo cheio)</span>
+      <span><span class="dot" style="border:1.5px solid #f85149"></span>baixa (corpo vazado)</span>
       <span><span class="dot" style="background:#d29922"></span>MM20</span>
       <span><span class="dot" style="background:rgba(248,81,73,.9)"></span>resistência</span>
       <span><span class="dot" style="background:rgba(63,185,80,.9)"></span>suporte</span>
@@ -471,6 +471,7 @@ const XT_CANDLE = MOBILE ? 6 : 13;
 const XT_FULL = MOBILE ? 6 : 16;
 if (MOBILE) Chart.defaults.font.size = 10;
 const RESP = { responsive:true, maintainAspectRatio:false };
+const ALTA = 'rgba(63,185,80,.9)', BAIXA = 'rgba(248,81,73,.9)';
 
 // ===== candlestick DIÁRIO (novo) =====
 // É aqui que o último pregão aparece isolado, e não diluído dentro do candle
@@ -496,7 +497,8 @@ if (!hasDaily) {
   const dailyChart = new Chart(el('dailyChart'), {
     type:'bar',
     data:{ labels:[], datasets:[
-      { label:'corpo', data:[], backgroundColor:[], barPercentage:.75, categoryPercentage:1, order:2 },
+      { label:'corpo', data:[], backgroundColor:[], borderColor:[], borderWidth:1.2, borderSkipped:false,
+        barPercentage:.75, categoryPercentage:1, order:2 },
       { label:'sombra', data:[], backgroundColor:[], barPercentage:.14, categoryPercentage:1, order:3 },
       { type:'line', label:'MM9', data:[], borderColor:'#d29922', borderWidth:1.6, pointRadius:0, tension:.2, order:1 },
       { type:'line', label:'MM21', data:[], borderColor:'#ffdf5d', borderWidth:1.6, pointRadius:0, tension:.2, order:1 }
@@ -527,9 +529,12 @@ if (!hasDaily) {
     dailyChart.$win = w;
     dailyChart.data.labels = w.d;
     dailyChart.data.datasets[0].data = w.d.map((_,i)=>[Math.min(w.o[i],w.c[i]), Math.max(w.o[i],w.c[i])]);
-    dailyChart.data.datasets[0].backgroundColor = w.d.map((_,i)=> w.c[i]>=w.o[i] ? 'rgba(63,185,80,.9)' : 'rgba(248,81,73,.9)');
+    const corDoDia = w.d.map((_,i)=> w.c[i]>=w.o[i] ? ALTA : BAIXA);
+    // corpo cheio na alta, vazado na baixa: a forma repete o que a cor diz
+    dailyChart.data.datasets[0].backgroundColor = w.d.map((_,i)=> w.c[i]>=w.o[i] ? ALTA : 'transparent');
+    dailyChart.data.datasets[0].borderColor = corDoDia;
     dailyChart.data.datasets[1].data = w.d.map((_,i)=>[w.l[i], w.h[i]]);
-    dailyChart.data.datasets[1].backgroundColor = dailyChart.data.datasets[0].backgroundColor;
+    dailyChart.data.datasets[1].backgroundColor = corDoDia;
     dailyChart.data.datasets[2].data = sma9Full.slice(i0);
     dailyChart.data.datasets[3].data = sma21Full.slice(i0);
     dailyChart.update();
@@ -554,7 +559,11 @@ const N = Math.min(104, W.d.length), i0c = W.d.length - N;
 const cd = W.d.slice(i0c), co = W.o.slice(i0c), ch = W.h.slice(i0c), cl = W.l.slice(i0c), cc = W.c.slice(i0c);
 const wick = cd.map((_,i)=>[cl[i], ch[i]]);
 const body = cd.map((_,i)=>[Math.min(co[i],cc[i]), Math.max(co[i],cc[i])]);
-const bodyColor = cd.map((_,i)=> cc[i]>=co[i] ? 'rgba(63,185,80,.9)' : 'rgba(248,81,73,.9)');
+// Verde e vermelho são indistinguíveis sob deuteranopia (ΔE 2,2 em OKLab). Por
+// isso a alta/baixa também é codificada pela forma: corpo cheio na alta, corpo
+// vazado na baixa — o mesmo par de cores continua servindo a quem enxerga as duas.
+const bodyColor = cd.map((_,i)=> cc[i]>=co[i] ? ALTA : BAIXA);
+const bodyFill = cd.map((_,i)=> cc[i]>=co[i] ? ALTA : 'transparent');
 const sma20full = sma(W.c,20), sma52full = sma(W.c,52);
 const sma20win = sma20full.slice(i0c);
 const trend = linreg(cc);
@@ -577,7 +586,8 @@ el('trendSub').textContent = slopePct>2?'tendência de alta':(slopePct<-2?'tend�
 new Chart(el('candleChart'), {
   type:'bar',
   data:{ labels:cd, datasets:[
-    { label:'corpo', data:body, backgroundColor:bodyColor, barPercentage:.75, categoryPercentage:1, order:2 },
+    { label:'corpo', data:body, backgroundColor:bodyFill, borderColor:bodyColor, borderWidth:1.2,
+      borderSkipped:false, barPercentage:.75, categoryPercentage:1, order:2 },
     { label:'sombra', data:wick, backgroundColor:bodyColor, barPercentage:.14, categoryPercentage:1, order:3 },
     { type:'line', label:'MM20', data:sma20win, borderColor:'#d29922', borderWidth:1.6, pointRadius:0, tension:.2, order:1 },
     { type:'line', label:'Tendência', data:trend, borderColor:'#58a6ff', borderWidth:1.6, borderDash:[6,4], pointRadius:0, order:1 },

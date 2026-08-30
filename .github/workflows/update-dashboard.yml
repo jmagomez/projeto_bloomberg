@@ -2,11 +2,17 @@ name: Atualiza dashboard PETR4
 
 on:
   schedule:
-    # 21:30 UTC de segunda a sexta = 18:30 em Brasília (BRT, UTC-3), depois do
+    # 21:47 UTC de segunda a sexta = 18:47 em Brasília (BRT, UTC-3), depois do
     # fechamento do pregão (17:00) e do after-market da B3 (até 17:55).
     # Rodar todo pregão — e não só aos sábados — significa que uma resposta
     # incompleta da fonte atrasa o dashboard em um dia, não em uma semana.
-    - cron: "30 21 * * 1-5"
+    # O minuto está fora de :00 e :30 de propósito: são os mais disputados na
+    # fila do GitHub Actions, e aqui o atraso de enfileiramento chegou a horas.
+    - cron: "47 21 * * 1-5"
+    # Repescagem às 11:13 UTC = 08:13 em Brasília, de terça a sábado (o sábado
+    # cobre o pregão de sexta). Quando a rodada da véspera já publicou, esta
+    # não encontra mudança em data.js e termina sem commitar nada.
+    - cron: "13 11 * * 2-6"
   workflow_dispatch: {}     # permite rodar manualmente na aba Actions
 
 permissions:

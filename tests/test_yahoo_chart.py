@@ -73,24 +73,37 @@ def test_extrai_proventos_soma_por_data():
     assert proventos == {"2026-08-21": 0.75}
 
 
-def test_serie_desatualizada_e_rejeitada():
-    """O incidente de 2026-08-22, reproduzido."""
+def test_pregao_faltando_e_sinalizado_como_pendente():
+    """O incidente de 2026-08-22, reproduzido.
+
+    A validação não derruba mais a rotina: marca a pendência e deixa a decisão
+    para update_dashboard, que só desiste se a coleta também não avançar.
+    """
     res = resposta([TS_QUI_20], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
     linhas = yc.extrai_pregoes(res)
     estado = yc.estado_do_mercado(res)
 
     assert estado["ultimo_pregao"] == "2026-08-21"
     assert estado["aberto"] is False
-    with pytest.raises(yc.DadosDesatualizadosError) as erro:
-        yc.valida_atualidade(linhas, estado)
-    assert "2026-08-21" in str(erro.value) and "2026-08-20" in str(erro.value)
+    linhas, avisos, pendente = yc.valida_atualidade(linhas, estado)
+    assert pendente == "2026-08-21"
+    assert linhas[-1]["d"] == "2026-08-20"
+    assert any("2026-08-21" in a and "2026-08-20" in a for a in avisos)
+
+
+def test_serie_vazia_ainda_levanta():
+    with pytest.raises(yc.DadosDesatualizadosError):
+        yc.valida_atualidade([], {"ultimo_pregao": "2026-08-21", "aberto": False})
 
 
 def test_serie_completa_e_aceita():
     res = resposta([TS_QUI_20, TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
-    linhas, avisos = yc.valida_atualidade(yc.extrai_pregoes(res), yc.estado_do_mercado(res))
+    linhas, avisos, pendente = yc.valida_atualidade(
+        yc.extrai_pregoes(res), yc.estado_do_mercado(res)
+    )
     assert linhas[-1]["d"] == "2026-08-21"
     assert avisos == []
+    assert pendente is None
 
 
 def test_pregao_em_andamento_descarta_a_barra_do_dia(monkeypatch):
@@ -102,16 +115,20 @@ def test_pregao_em_andamento_descarta_a_barra_do_dia(monkeypatch):
     estado = yc.estado_do_mercado(res)
     assert estado["aberto"] is True
 
-    linhas, avisos = yc.valida_atualidade(yc.extrai_pregoes(res), estado)
+    linhas, avisos, pendente = yc.valida_atualidade(yc.extrai_pregoes(res), estado)
     assert [linha["d"] for linha in linhas] == ["2026-08-20"]
     assert any("em andamento" in aviso for aviso in avisos)
+    assert pendente is None
 
 
 def test_sem_regular_market_time_apenas_avisa():
     res = resposta([TS_QUI_20], None, TS_SEX_21, FIM_PREGAO_SEX)
-    linhas, avisos = yc.valida_atualidade(yc.extrai_pregoes(res), yc.estado_do_mercado(res))
+    linhas, avisos, pendente = yc.valida_atualidade(
+        yc.extrai_pregoes(res), yc.estado_do_mercado(res)
+    )
     assert linhas[-1]["d"] == "2026-08-20"
     assert any("regularMarketTime" in aviso for aviso in avisos)
+    assert pendente is None
 
 
 def test_mescla_prefere_a_serie_mais_recente():
@@ -133,3 +150,70 @@ def _relogio_fixo(epoch):
             return _dt.datetime.fromtimestamp(epoch, tz=tz or _dt.UTC)
 
     return _Fixo
+
+
+# ---------------------------------------------------------------------------
+# Recomposição do fechamento a partir do meta (incidente de 2026-08-28: o Yahoo
+# passou a servir a barra do pregão com close nulo e assim ficou por mais de um
+# dia; os demais campos, e o fechamento em meta.regularMarketPrice, estavam lá).
+# ---------------------------------------------------------------------------
+
+
+def resposta_close_nulo(preco_meta, low=42.62, high=43.60):
+    res = resposta([TS_QUI_20, TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+    q = res["indicators"]["quote"][0]
+    q["open"][1], q["high"][1], q["low"][1] = 42.72, high, low
+    q["close"][1] = None
+    q["volume"][1] = 46064700
+    res["meta"]["regularMarketPrice"] = preco_meta
+    return res
+
+
+def test_recompoe_fechamento_nulo_a_partir_do_meta():
+    res = resposta_close_nulo(43.55)
+    linhas = yc.extrai_pregoes(res)
+    assert [linha["d"] for linha in linhas] == ["2026-08-20"]  # barra caiu fora
+
+    linhas, recomposta = yc.recupera_fechamento_do_meta(res, linhas)
+    assert recomposta == "2026-08-21"
+    assert linhas[-1]["d"] == "2026-08-21"
+    assert linhas[-1]["c"] == 43.55
+    assert linhas[-1]["v"] == 46064700
+    assert linhas[-1]["c_de_meta"] is True
+
+    # e aí a validação passa a considerar a série completa
+    _, _, pendente = yc.valida_atualidade(linhas, yc.estado_do_mercado(res))
+    assert pendente is None
+
+
+def test_nao_recompoe_se_preco_do_meta_sai_da_faixa_da_barra():
+    # 50,00 está fora de [42,62; 43,60]: incoerente com a própria barra
+    res = resposta_close_nulo(50.00)
+    linhas, recomposta = yc.recupera_fechamento_do_meta(res, yc.extrai_pregoes(res))
+    assert recomposta is None
+    assert linhas[-1]["d"] == "2026-08-20"
+
+
+def test_nao_recompoe_com_pregao_em_andamento(monkeypatch):
+    meio = TS_SEX_21 + 3 * 3600
+    monkeypatch.setattr(yc, "datetime", _relogio_fixo(meio))
+    res = resposta_close_nulo(43.55)
+    res["meta"]["regularMarketTime"] = meio  # antes do fim do horário regular
+    linhas, recomposta = yc.recupera_fechamento_do_meta(res, yc.extrai_pregoes(res))
+    assert recomposta is None
+
+
+def test_nao_recompoe_barra_do_meio_da_serie():
+    # buraco no meio nunca é preenchido: só a última barra pode ser recomposta
+    res = resposta([TS_QUI_20, TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+    res["indicators"]["quote"][0]["close"][0] = None
+    res["meta"]["regularMarketPrice"] = 10.5
+    linhas, recomposta = yc.recupera_fechamento_do_meta(res, yc.extrai_pregoes(res))
+    assert recomposta is None
+    assert [linha["d"] for linha in linhas] == ["2026-08-21"]
+
+
+def test_nao_recompoe_sem_preco_no_meta():
+    res = resposta_close_nulo(None)
+    _, recomposta = yc.recupera_fechamento_do_meta(res, yc.extrai_pregoes(res))
+    assert recomposta is None

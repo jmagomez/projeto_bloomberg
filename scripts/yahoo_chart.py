@@ -1,36 +1,39 @@
-"""Cliente da chart API do Yahoo Finance com validação de atualidade.
+"""Cliente da chart API do Yahoo Finance, com as defesas que os incidentes pediram.
 
-Motivação
----------
-A rotina do dashboard publicava, sem checagem, qualquer série devolvida com
-HTTP 200. Em 2026-08-22 (sábado, 12:21 UTC) o endpoint respondeu 200 com a
-série terminando em 2026-08-20 (quinta), embora o pregão de 2026-08-21 (sexta)
-já estivesse fechado havia ~16 h — a mesma consulta, repetida depois, devolveu
-a sexta normalmente. Resultado: o dashboard ficou uma semana inteira exibindo o
-penúltimo pregão.
+A rotina do dashboard já publicou, sem checagem, qualquer série devolvida com
+HTTP 200. Dois incidentes moldaram o que está aqui:
 
-A defesa implementada aqui não inventa nem estima preço nenhum. Ela apenas
-compara duas informações que a *própria resposta* do Yahoo traz:
+**2026-08-22 — série truncada.** O endpoint respondeu 200 com a série terminando
+em 2026-08-20, embora o pregão de 2026-08-21 já estivesse fechado havia ~16 h; a
+mesma consulta, repetida depois, devolveu a sexta normalmente. O dashboard passou
+uma semana exibindo o penúltimo pregão.
 
-* ``meta.regularMarketTime`` — instante do último negócio consolidado, ou seja,
-  qual foi o último pregão na visão da fonte;
-* o último ponto do array ``timestamp`` — qual foi o último pregão realmente
-  entregue na série.
+**2026-08-28 — fechamento nulo.** O Yahoo passou a servir a barra do pregão com
+``open``, ``high``, ``low`` e ``volume`` preenchidos e ``close`` nulo, e assim
+ficou por mais de um dia. O fechamento estava na mesma resposta, em
+``meta.regularMarketPrice``. Como nenhum retry resolvia, a rotina falhava toda
+noite e o dashboard ia acumulando atraso.
 
-Se o segundo for anterior ao primeiro, a série está desatualizada. Nesse caso a
-rotina reconsulta (outro host e outra janela, que têm cache independente) e, se
-ainda assim faltar o pregão, levanta ``DadosDesatualizadosError`` — o job falha
-e o dashboard mantém o dado anterior, correto, em vez de publicar defasagem
-silenciosa.
+As defesas, nesta ordem:
 
-Nenhum calendário de feriados da B3 é necessário: ``regularMarketTime`` já
-responde "qual foi o último pregão" mesmo em feriados e emendas.
+1. ``recupera_fechamento_do_meta`` recompõe a última barra a partir do
+   ``meta.regularMarketPrice`` da própria resposta, sob condições estritas.
+2. ``valida_atualidade`` compara ``meta.regularMarketTime`` (qual foi o último
+   pregão, na visão da fonte) com o último ponto de ``timestamp`` (qual foi
+   entregue) e **sinaliza** a pendência em vez de derrubar o job.
+3. Quem decide publicar é ``update_dashboard``: avanço parcial sinalizado vale
+   mais que dashboard parado; sem avanço nenhum, aí sim falha.
+
+Nada é estimado, interpolado ou completado: todo número vem da resposta da fonte.
+Nenhum calendário de feriados é necessário — ``regularMarketTime`` já responde
+"qual foi o último pregão" mesmo em feriados e emendas.
 """
 
 from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 import requests
 
@@ -68,7 +71,7 @@ def data_da_bolsa(ts: int, gmtoffset: int) -> str:
 
 
 def _requisita(host: str, symbol: str, params: dict) -> dict:
-    url = CHART_URL.format(host=host, symbol=symbol)
+    url = CHART_URL.format(host=host, symbol=quote(symbol, safe=""))
     try:
         resp = requests.get(url, params=params, headers=HEADERS, timeout=TIMEOUT)
     except requests.RequestException as exc:
@@ -152,6 +155,77 @@ def extrai_proventos(res: dict) -> dict[str, float]:
     return por_data
 
 
+def recupera_fechamento_do_meta(res: dict, linhas: list[dict]) -> tuple[list[dict], str | None]:
+    """Recompõe a última barra quando o Yahoo entrega ``close`` nulo.
+
+    Em 2026-08-28 o Yahoo passou a servir a barra do pregão com ``open``,
+    ``high``, ``low`` e ``volume`` preenchidos mas ``close`` (e ``adjclose``)
+    nulos — e assim ficou por mais de um dia, o que nenhum retry resolveria. O
+    fechamento, porém, estava na mesma resposta, em ``meta.regularMarketPrice``,
+    junto com ``regularMarketDayHigh/Low/Volume`` batendo com a própria barra.
+
+    Nada é estimado: o valor vem da mesma resposta, e só é aceito quando
+
+    * o pregão já fechou (``regularMarketTime`` alcançou o fim do horário
+      regular) — barra em andamento nunca é recomposta;
+    * a barra faltante é a **última** da série e é justamente a do pregão que o
+      ``meta`` reporta;
+    * ``open``, ``high``, ``low`` da barra estão preenchidos;
+    * o preço do ``meta`` cai dentro da faixa ``[low, high]`` da própria barra.
+
+    Devolve ``(linhas, data_recomposta_ou_None)``.
+    """
+    meta = res.get("meta") or {}
+    offset = int(meta.get("gmtoffset") or 0)
+    market_time = meta.get("regularMarketTime")
+    preco = meta.get("regularMarketPrice")
+    if not market_time or preco in (None, 0):
+        return linhas, None
+
+    periodo = ((meta.get("currentTradingPeriod") or {}).get("regular")) or {}
+    fim = periodo.get("end")
+    if fim and int(market_time) < int(fim):
+        return linhas, None  # pregão em andamento
+
+    data_meta = data_da_bolsa(int(market_time), offset)
+    if linhas and linhas[-1]["d"] >= data_meta:
+        return linhas, None  # a série já alcança o pregão
+
+    timestamps = res.get("timestamp") or []
+    if not timestamps or data_da_bolsa(int(timestamps[-1]), offset) != data_meta:
+        return linhas, None  # a barra faltante não é a última da série
+
+    cotacoes = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+    i = len(timestamps) - 1
+    try:
+        o = cotacoes["open"][i]
+        h = cotacoes["high"][i]
+        low = cotacoes["low"][i]
+    except (KeyError, IndexError):
+        return linhas, None
+    if o is None or h is None or low is None:
+        return linhas, None
+
+    fechamento = float(preco)
+    if not (float(low) <= fechamento <= float(h)):
+        return linhas, None  # incoerente com a própria barra: não usa
+
+    volumes = cotacoes.get("volume") or []
+    vol = volumes[i] if i < len(volumes) else 0
+    linhas = linhas + [
+        {
+            "d": data_meta,
+            "o": float(o),
+            "h": float(h),
+            "l": float(low),
+            "c": fechamento,
+            "v": int(vol or 0),
+            "c_de_meta": True,
+        }
+    ]
+    return linhas, data_meta
+
+
 def estado_do_mercado(res: dict) -> dict:
     """Lê da resposta o que a fonte diz sobre o último pregão.
 
@@ -199,6 +273,7 @@ def _uma_tentativa(
     params_curto = {"range": "1mo", "interval": "1d", "events": "div"}
 
     avisos: list[str] = []
+    recomposicoes: set[str] = set()
     serie_longa: list[dict] = []
     proventos: dict[str, float] = {}
     estado_melhor: dict | None = None
@@ -211,7 +286,9 @@ def _uma_tentativa(
         except ErroTransitorio as exc:
             falhas.append(str(exc))
             continue
-        serie_longa = extrai_pregoes(res)
+        serie_longa, recomposta = recupera_fechamento_do_meta(res, extrai_pregoes(res))
+        if recomposta:
+            recomposicoes.add(recomposta)
         proventos = extrai_proventos(res)
         estado_melhor = estado_do_mercado(res)
         break
@@ -228,7 +305,10 @@ def _uma_tentativa(
         except ErroTransitorio as exc:
             avisos.append(f"sondagem em {host} falhou: {exc}")
             continue
-        serie_longa = _mescla(serie_longa, extrai_pregoes(res))
+        curta, recomposta = recupera_fechamento_do_meta(res, extrai_pregoes(res))
+        if recomposta:
+            recomposicoes.add(recomposta)
+        serie_longa = _mescla(serie_longa, curta)
         proventos.update(extrai_proventos(res))
         estado = estado_do_mercado(res)
         if estado["ultimo_pregao"] and (
@@ -238,16 +318,32 @@ def _uma_tentativa(
         ):
             estado_melhor = estado
 
-    return serie_longa, proventos, estado_melhor or {"ultimo_pregao": None, "aberto": False}, avisos
+    estado = estado_melhor or {"ultimo_pregao": None, "aberto": False}
+    if recomposicoes:
+        alvo = max(recomposicoes)
+        if any(linha["d"] == alvo for linha in serie_longa):
+            avisos.append(
+                f"a barra de {alvo} veio com 'close' nulo; fechamento recomposto a "
+                "partir de 'meta.regularMarketPrice' da mesma resposta"
+            )
+    estado["fechamento_recomposto"] = max(recomposicoes) if recomposicoes else None
+    return serie_longa, proventos, estado, avisos
 
 
-def valida_atualidade(linhas: list[dict], estado: dict) -> tuple[list[dict], list[str]]:
+def valida_atualidade(linhas: list[dict], estado: dict) -> tuple[list[dict], list[str], str | None]:
     """Confere se a série alcança o último pregão que a fonte reporta.
 
-    Levanta ``DadosDesatualizadosError`` se faltar. Se o pregão ainda estiver em
-    andamento, descarta a barra parcial do dia e devolve um aviso — a rotina
-    normal roda depois do fechamento, então esse caminho só aparece em execuções
-    manuais durante o horário do pregão.
+    Devolve ``(linhas, avisos, pendente)``. ``pendente`` é a data do pregão que
+    a fonte diz existir mas não entregou — ``None`` quando está tudo em dia.
+
+    Quem decide o que fazer com um pregão pendente é ``update_dashboard``: se a
+    coleta ainda assim avança em relação ao que está publicado, vale mais
+    publicar o avanço (sinalizado) do que deixar o dashboard parado; se não
+    avança nada, aí sim o job falha. Antes disso, qualquer pendência derrubava a
+    rotina — e o dashboard acumulava dias de atraso enquanto a fonte não se
+    resolvia.
+
+    Se o pregão ainda estiver em andamento, a barra parcial do dia é descartada.
     """
     avisos: list[str] = []
     if not linhas:
@@ -256,7 +352,7 @@ def valida_atualidade(linhas: list[dict], estado: dict) -> tuple[list[dict], lis
     esperado = estado.get("ultimo_pregao")
 
     if estado.get("aberto"):
-        if esperado and linhas and linhas[-1]["d"] == esperado:
+        if esperado and linhas[-1]["d"] == esperado:
             linhas = linhas[:-1]
             avisos.append(
                 f"pregão de {esperado} em andamento — barra parcial descartada; "
@@ -264,22 +360,23 @@ def valida_atualidade(linhas: list[dict], estado: dict) -> tuple[list[dict], lis
             )
         if not linhas:
             raise DadosDesatualizadosError("só havia a barra parcial do pregão em andamento")
-        return linhas, avisos
+        return linhas, avisos, None
 
     if not esperado:
         avisos.append(
             "a resposta não trouxe 'meta.regularMarketTime'; não foi possível "
             "confirmar se a série alcança o último pregão"
         )
-        return linhas, avisos
+        return linhas, avisos, None
 
     obtido = linhas[-1]["d"]
     if obtido < esperado:
-        raise DadosDesatualizadosError(
-            f"série desatualizada: a fonte informa que o último pregão fechado é "
-            f"{esperado}, mas a série entregue termina em {obtido}"
+        avisos.append(
+            f"a fonte informa que o último pregão fechado é {esperado}, mas a série "
+            f"entregue termina em {obtido}"
         )
-    return linhas, avisos
+        return linhas, avisos, esperado
+    return linhas, avisos, None
 
 
 def busca_serie_diaria(
@@ -287,11 +384,13 @@ def busca_serie_diaria(
 ) -> tuple[list[dict], dict[str, float], dict, list[str]]:
     """Baixa a série diária validada.
 
-    Repete a consulta inteira quando a resposta vem desatualizada — o cache do
-    Yahoo é por nó e costuma normalizar em segundos. Só depois de esgotar as
-    tentativas é que o erro sobe e derruba o job.
+    Repete a consulta quando a resposta vem incompleta — o cache do Yahoo é por
+    nó e às vezes normaliza em segundos. Esgotadas as tentativas, devolve o que
+    conseguiu com ``estado["pendente"]`` preenchido, em vez de levantar: a
+    decisão de publicar ou não é de quem chama.
     """
     ultima_falha: Exception | None = None
+    resultado = None
     for tentativa in range(TENTATIVAS):
         if tentativa:
             espera = ESPERA_BASE * 2 ** (tentativa - 1)
@@ -303,16 +402,38 @@ def busca_serie_diaria(
             time.sleep(espera)
         try:
             linhas, proventos, estado, avisos = _uma_tentativa(symbol, period1)
-            linhas, avisos_validacao = valida_atualidade(linhas, estado)
-            return linhas, proventos, estado, avisos + avisos_validacao
+            linhas, avisos_val, pendente = valida_atualidade(linhas, estado)
+            estado["pendente"] = pendente
+            resultado = (linhas, proventos, estado, avisos + avisos_val)
+            if not pendente:
+                return resultado
+            ultima_falha = DadosDesatualizadosError("; ".join(avisos_val) or "pregão pendente")
         except (ErroTransitorio, DadosDesatualizadosError) as exc:
             ultima_falha = exc
 
-    if isinstance(ultima_falha, DadosDesatualizadosError):
-        raise DadosDesatualizadosError(
-            f"{ultima_falha} — após {TENTATIVAS} tentativas. Nada foi publicado: "
-            "o dashboard mantém o último dado íntegro."
-        ) from ultima_falha
+    if resultado is not None:
+        return resultado
     raise ErroTransitorio(
         f"Yahoo Finance indisponível após {TENTATIVAS} tentativas ({ultima_falha})"
     ) from ultima_falha
+
+
+def busca_fechamentos(symbol: str, period1: int) -> dict[str, float]:
+    """Série de fechamentos diários de um símbolo auxiliar (ex.: ^BVSP).
+
+    Usada só para comparação no dashboard. Devolve ``{data: fechamento}`` e
+    nunca levanta: se o símbolo de referência falhar, o dashboard segue sem o
+    painel de comparação — não faz sentido derrubar a rotina da PETR4 por causa
+    do índice.
+    """
+    agora = int(datetime.now(UTC).timestamp())
+    params = {"period1": period1, "period2": agora, "interval": "1d"}
+    for host in HOSTS:
+        try:
+            res = _requisita(host, symbol, params)
+        except ErroTransitorio:
+            continue
+        linhas, _ = recupera_fechamento_do_meta(res, extrai_pregoes(res))
+        if linhas:
+            return {linha["d"]: round(linha["c"], 2) for linha in linhas}
+    return {}

@@ -102,9 +102,9 @@ def test_dividend_yield_usa_o_ultimo_fechamento():
     assert stats["div_yield_ttm_pct"] == pytest.approx(10.0, abs=0.01)
 
 
-def test_payload_tem_os_quatro_blocos():
+def test_payload_tem_os_blocos_esperados():
     payload = ud.monta_payload([dict(p) for p in SERIE], {"2026-08-11": 0.5})
-    assert set(payload) == {"stats", "D", "W", "DIV"}
+    assert set(payload) == {"stats", "D", "W", "M", "DIV"}
     assert payload["DIV"] == {"y": ["2026"], "v": [0.5]}
     assert payload["D"]["e"][1] == 0.5  # provento marcado no dia certo
     assert json.dumps(payload)  # serializável
@@ -144,3 +144,102 @@ def test_le_payload_atual_tolera_arquivo_invalido(tmp_path):
     arquivo.write_text("window.PETR4 = {quebrado;", encoding="utf-8")
     assert ud.le_payload_atual(arquivo) is None
     assert ud.le_payload_atual(tmp_path / "inexistente.js") is None
+
+
+# ---------------------------------------------------------------------------
+# Drawdown, série mensal, alinhamento do índice de referência e publicação
+# parcial quando a fonte deve um pregão.
+# ---------------------------------------------------------------------------
+
+
+def serie_com_topo_e_fundo():
+    """Sobe até 20, cai até 8 (-60%), volta a 21 (recupera e faz novo topo)."""
+    precos = [10, 14, 20, 15, 8, 12, 19, 21]
+    datas = [
+        "2026-01-05",
+        "2026-02-05",
+        "2026-03-05",
+        "2026-04-06",
+        "2026-05-05",
+        "2026-06-05",
+        "2026-07-06",
+        "2026-08-05",
+    ]
+    return [pregao(d, c, c + 1, c - 1, c) for d, c in zip(datas, precos, strict=True)]
+
+
+def test_drawdown_encontra_pior_queda_e_recuperacao():
+    dd = ud.drawdown(serie_com_topo_e_fundo())
+    assert dd["max_drawdown_pct"] == pytest.approx(-60.0, abs=0.01)  # 8/20 - 1
+    assert dd["max_drawdown_de"] == "2026-03-05"  # pico anterior à queda
+    assert dd["max_drawdown_ate"] == "2026-05-05"  # fundo
+    assert dd["max_drawdown_recuperado"] == "2026-08-05"  # primeiro fech. >= 20
+    assert dd["ath_close"] == 21
+    assert dd["ath_date"] == "2026-08-05"
+    assert dd["drawdown_atual_pct"] == pytest.approx(0.0, abs=0.01)
+
+
+def test_drawdown_sem_recuperacao_fica_none():
+    serie = serie_com_topo_e_fundo()[:6]  # termina em 12, sem voltar aos 20
+    dd = ud.drawdown(serie)
+    assert dd["max_drawdown_recuperado"] is None
+    assert dd["drawdown_atual_pct"] == pytest.approx(-40.0, abs=0.01)  # 12/20 - 1
+
+
+def test_mensal_ignora_o_primeiro_mes_por_falta_de_base():
+    M = ud.mensal([dict(p) for p in SERIE])
+    assert M["d"] == []  # SERIE inteira cabe em agosto/2026: nenhum retorno completo
+    M2 = ud.mensal(serie_com_topo_e_fundo())
+    assert M2["d"] == ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08"]
+    assert M2["r"][0] == pytest.approx(40.0, abs=0.01)  # 14/10 - 1
+    assert M2["r"][3] == pytest.approx(-46.67, abs=0.01)  # 8/15 - 1
+
+
+def test_mensal_usa_o_ultimo_fechamento_de_cada_mes():
+    serie = [
+        pregao("2026-01-05", 10, 10, 10, 10),
+        pregao("2026-01-30", 10, 10, 10, 20),  # fechamento do mês
+        pregao("2026-02-27", 20, 20, 20, 30),
+    ]
+    M = ud.mensal(serie)
+    assert M["d"] == ["2026-02"]
+    assert M["r"] == [50.0]  # 30/20 - 1
+
+
+def test_alinha_referencia_repete_ultimo_valor_e_nao_interpola():
+    ref = {"2026-08-10": 100.0, "2026-08-12": 110.0}
+    datas = ["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"]
+    assert ud.alinha_referencia(ref, datas) == [100.0, 100.0, 110.0, 110.0]
+
+
+def test_alinha_referencia_deixa_nulo_antes_do_primeiro_dado():
+    ref = {"2026-08-12": 110.0}
+    assert ud.alinha_referencia(ref, ["2026-08-10", "2026-08-12"]) == [None, 110.0]
+
+
+def test_alinha_referencia_sem_dados_devolve_vazio():
+    assert ud.alinha_referencia({}, ["2026-08-10"]) == []
+
+
+def test_payload_traz_os_blocos_novos():
+    ref = {p["d"]: 100.0 + i for i, p in enumerate(SERIE)}
+    payload = ud.monta_payload([dict(p) for p in SERIE], {}, ref, pendente="2026-08-24")
+    assert set(payload) == {"stats", "D", "W", "M", "DIV", "REF"}
+    assert payload["stats"]["pending_session"] == "2026-08-24"
+    assert payload["stats"]["close_source"] == "chart"
+    assert payload["stats"]["max_drawdown_pct"] <= 0
+    assert len(payload["REF"]["D"]) == len(payload["D"]["d"])
+    assert len(payload["REF"]["W"]) == len(payload["W"]["d"])
+    assert json.dumps(payload)
+
+
+def test_payload_sem_referencia_omite_o_bloco():
+    payload = ud.monta_payload([dict(p) for p in SERIE], {}, {}, None)
+    assert "REF" not in payload
+    assert payload["stats"]["pending_session"] is None
+
+
+def test_close_source_marca_fechamento_vindo_do_meta():
+    serie = [dict(p) for p in SERIE]
+    serie[-1]["c_de_meta"] = True
+    assert ud.monta_payload(serie, {})["stats"]["close_source"] == "meta"

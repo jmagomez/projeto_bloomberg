@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="data.js"></script>
 <style>
-  :root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --up:#3fb950; --down:#f85149; --accent:#58a6ff; --gold:#d29922; --warn-bg:#3d2c07; --warn-border:#9e6a03; --warn-text:#f0c674; }
+  :root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --up:#3fb950; --down:#f85149; --accent:#58a6ff; --gold:#d29922; --long:#ffdf5d; --warn-bg:#3d2c07; --warn-border:#9e6a03; --warn-text:#f0c674; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; padding:24px; }
   .container { max-width:1100px; margin:0 auto; }
@@ -58,7 +58,20 @@
   details.help dt { color:var(--text); font-size:.83rem; font-weight:600; }
   details.help dd { color:var(--muted); font-size:.8rem; margin-left:0; }
 
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
   .empty-msg { color:var(--muted); font-size:.82rem; padding:24px 0; text-align:center; }
+
+  /* heatmap de retornos mensais: é uma tabela de verdade, não um canvas —
+     assim o leitor de tela lê os números e o Ctrl+F encontra. */
+  .heat-wrap { overflow-x:auto; }
+  table.heat { border-collapse:separate; border-spacing:2px; font-size:.72rem; width:100%; min-width:640px; }
+  table.heat th { color:var(--muted); font-weight:500; padding:4px 2px; text-align:center; font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; }
+  table.heat th[scope=row] { text-align:right; padding-right:8px; font-variant-numeric:tabular-nums; }
+  table.heat td { text-align:center; padding:5px 2px; border-radius:4px; font-variant-numeric:tabular-nums; color:var(--text); white-space:nowrap; }
+  table.heat td.vazio { background:transparent; color:var(--border); }
+  table.heat td.ano { font-weight:600; border-left:2px solid var(--bg); }
+  .heat-legenda { display:flex; align-items:center; gap:6px; margin-top:10px; font-size:.72rem; color:var(--muted); flex-wrap:wrap; }
+  .heat-legenda i { display:inline-block; width:22px; height:12px; border-radius:3px; }
 
   /* Os gráficos têm altura fixa em CSS (com maintainAspectRatio:false no Chart.js).
      Sem isso, a altura acompanha a largura da tela e os gráficos ficam
@@ -67,6 +80,7 @@
   .chart-box.h-lg { height:420px; }
   .chart-box.h-md { height:340px; }
   .chart-box.h-sm { height:220px; }
+  .chart-box.h-xs { height:110px; }
 
   @media (max-width:640px) {
     body { padding:12px; }
@@ -78,6 +92,7 @@
     .chart-box.h-lg { height:340px; }
     .chart-box.h-md { height:280px; }
     .chart-box.h-sm { height:200px; }
+    .chart-box.h-xs { height:90px; }
   }
   @media (prefers-reduced-motion: reduce) {
     * { transition:none !important; }
@@ -106,6 +121,8 @@
     <div class="card"><div class="label">Proventos (12 meses) <span class="info" title="Dividendos + juros sobre capital próprio (JCP) por ação pagos nos últimos 12 meses, em % do último fechamento.">ⓘ</span></div><div class="value gold" id="divYieldVal">—</div><div class="sub" id="divSub"></div></div>
     <div class="card"><div class="label">Volatilidade <span class="info" title="Desvio-padrão das variações diárias de fechamento em todo o período. A versão anualizada multiplica por raiz de 252 pregões.">ⓘ</span></div><div class="value" id="volVal">—</div><div class="sub" id="volSub"></div></div>
     <div class="card"><div class="label">Volume</div><div class="value" id="volumeVal">—</div><div class="sub" id="volumeSub"></div></div>
+    <div class="card"><div class="label">Drawdown máximo <span class="info" title="Maior queda do fechamento em relação ao topo anterior, em todo o período. Mede o pior prejuízo de quem tivesse comprado no topo.">ⓘ</span></div><div class="value down" id="ddMaxVal">—</div><div class="sub" id="ddMaxSub"></div></div>
+    <div class="card"><div class="label">Drawdown atual <span class="info" title="Distância do fechamento atual até a máxima histórica de fechamento.">ⓘ</span></div><div class="value" id="ddNowVal">—</div><div class="sub" id="ddNowSub"></div></div>
     <div class="card"><div class="label">Melhor dia</div><div class="value up" id="bestVal"></div><div class="sub" id="bestDate"></div></div>
     <div class="card"><div class="label">Pior dia</div><div class="value down" id="worstVal"></div><div class="sub" id="worstDate"></div></div>
   </div>
@@ -113,10 +130,10 @@
   <div class="panel" id="dailyPanel">
     <h2>Candlestick diário — MM9 e MM21 <span class="info" title="Um candle por pregão. As médias móveis são de 9 e 21 pregões.">ⓘ</span></h2>
     <div class="legend">
-      <span><span class="dot" style="background:#3fb950"></span>alta</span>
-      <span><span class="dot" style="background:#f85149"></span>baixa</span>
+      <span><span class="dot" style="background:#3fb950"></span>alta (corpo cheio)</span>
+      <span><span class="dot" style="border:1.5px solid #f85149"></span>baixa (corpo vazado)</span>
       <span><span class="dot" style="background:#d29922"></span>MM9</span>
-      <span><span class="dot" style="background:#bc8cff"></span>MM21</span>
+      <span><span class="dot" style="background:#ffdf5d"></span>MM21</span>
     </div>
     <div class="range-btns" id="dailyRangeBtns">
       <button data-d="21">1M</button>
@@ -126,14 +143,16 @@
       <button data-d="0">Máx</button>
     </div>
     <div class="chart-box h-lg"><canvas id="dailyChart"></canvas></div>
+    <div class="chart-box h-xs" id="dailyVolBox"><canvas id="dailyVolChart"></canvas></div>
+    <div class="legend" style="margin:6px 0 0"><span><span class="dot" style="background:rgba(88,166,255,.45)"></span>volume do pregão</span><span><span class="dot" style="background:#ffdf5d"></span>média de 21 pregões</span></div>
     <div class="empty-msg" id="dailyEmpty" style="display:none">Este data.js ainda não traz a série diária — ela é preenchida na próxima execução da rotina.</div>
   </div>
 
   <div class="panel">
     <h2>Candlestick semanal — últimas 104 semanas · suporte, resistência e tendência</h2>
     <div class="legend">
-      <span><span class="dot" style="background:#3fb950"></span>alta</span>
-      <span><span class="dot" style="background:#f85149"></span>baixa</span>
+      <span><span class="dot" style="background:#3fb950"></span>alta (corpo cheio)</span>
+      <span><span class="dot" style="border:1.5px solid #f85149"></span>baixa (corpo vazado)</span>
       <span><span class="dot" style="background:#d29922"></span>MM20</span>
       <span><span class="dot" style="background:rgba(248,81,73,.9)"></span>resistência</span>
       <span><span class="dot" style="background:rgba(63,185,80,.9)"></span>suporte</span>
@@ -170,6 +189,38 @@
     <div class="chart-box h-sm"><canvas id="volChart"></canvas></div>
   </div>
 
+  <div class="panel" id="cmpPanel">
+    <h2>PETR4 × <span id="cmpNome">Ibovespa</span> — base 100 <span class="info" title="As duas séries partem de 100 no início da janela escolhida, então a distância entre as linhas é a diferença de desempenho no período. Não inclui proventos.">ⓘ</span></h2>
+    <div class="range-btns" id="cmpRangeBtns">
+      <button data-w="52">1A</button>
+      <button data-w="104" class="active">2A</button>
+      <button data-w="260">5A</button>
+      <button data-w="520">10A</button>
+      <button data-w="0">Máx</button>
+    </div>
+    <div class="chart-box h-md"><canvas id="cmpChart"></canvas></div>
+    <div class="empty-msg" id="cmpEmpty" style="display:none">Este data.js não traz a série do índice de referência — a rotina segue sem ela quando a fonte falha, e o painel volta na próxima coleta bem-sucedida.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Drawdown — queda desde o topo histórico <span class="info" title="Para cada semana, quanto o fechamento estava abaixo do maior fechamento já atingido até ali. Zero significa topo histórico novo.">ⓘ</span></h2>
+    <div class="chart-box h-md"><canvas id="ddChart"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <h2>Retornos mensais (%) <span class="info" title="Variação do fechamento de um mês para o do mês seguinte. A coluna Ano compõe os meses do próprio ano, então não é a soma deles.">ⓘ</span></h2>
+    <div class="heat-wrap"><table class="heat" id="heatTable"><caption class="sr-only">Retornos mensais da PETR4 por ano</caption></table></div>
+    <div class="heat-legenda">
+      <span>queda</span>
+      <i id="legNeg3"></i><i id="legNeg2"></i><i id="legNeg1"></i>
+      <i id="legZero"></i>
+      <i id="legPos1"></i><i id="legPos2"></i><i id="legPos3"></i>
+      <span>alta</span>
+      <span style="margin-left:10px">a intensidade acompanha o tamanho da variação; o número está sempre escrito na célula</span>
+    </div>
+    <div class="empty-msg" id="heatEmpty" style="display:none">Este data.js ainda não traz a série mensal — ela é preenchida na próxima execução da rotina.</div>
+  </div>
+
   <details class="help">
     <summary>Sobre os indicadores</summary>
     <dl>
@@ -179,6 +230,12 @@
       <dd>Retorno total anualizado (% a.a.), somando a valorização do preço com dividendos e JCP pagos por ação, sem reinvestimento. Toque no card para alternar para o retorno acumulado no período inteiro.</dd>
       <dt>Proventos (12 meses)</dt>
       <dd>Dividendos + JCP por ação pagos nos últimos 12 meses, em % do último fechamento (dividend yield trailing).</dd>
+      <dt>Drawdown</dt>
+      <dd>Queda do fechamento em relação ao maior fechamento já atingido até aquele momento. O <em>drawdown máximo</em> é a pior dessas quedas em todo o período, com as datas do topo e do fundo e a data em que o preço voltou ao topo anterior (quando voltou). O <em>drawdown atual</em> é a distância de hoje até a máxima histórica.</dd>
+      <dt>Retornos mensais</dt>
+      <dd>Variação do fechamento de um mês para o do mês seguinte. O primeiro mês da série não aparece porque não há fechamento anterior que sirva de base. A coluna <em>ano</em> compõe os meses (multiplica os fatores), então não é a soma deles; um asterisco marca anos com menos de 12 meses de dados.</dd>
+      <dt>PETR4 × Ibovespa</dt>
+      <dd>As duas séries partem de 100 no início da janela escolhida, então a distância entre as linhas é a diferença de desempenho no período. Nenhuma das duas inclui proventos.</dd>
       <dt>Volatilidade</dt>
       <dd>Desvio-padrão das variações diárias de fechamento em todo o período; a versão anualizada multiplica por raiz de 252 pregões.</dd>
       <dt>RSI (14 semanas)</dt>
@@ -262,8 +319,17 @@ el('freshTxt').textContent = S.updated_utc
   ? `Rotina executada em ${S.updated_utc} (UTC) · dados até o pregão de ${S.last_date}`
   : `Rotina executada em ${S.updated} · dados até o pregão de ${S.last_date}`;
 
-if (pregoesFaltando > 0) {
-  const box = el('staleBox');
+// A pendência declarada pela rotina é informação de primeira mão e tem
+// precedência sobre a contagem de dias úteis, que é só uma heurística e não
+// conhece feriados da B3.
+const box = el('staleBox');
+if (S.pending_session) {
+  box.style.display = 'block';
+  box.innerHTML =
+    `<strong>Falta o pregão de ${S.pending_session}.</strong> A fonte informa que ele já fechou, ` +
+    `mas não entregou os preços. O dashboard mostra os dados até <strong>${S.last_date}</strong>, ` +
+    `que estão completos; o pregão pendente entra assim que a fonte o publicar.`;
+} else if (pregoesFaltando > 0) {
   box.style.display = 'block';
   box.innerHTML =
     `<strong>Possível defasagem.</strong> Os dados vão até o pregão de <strong>${S.last_date}</strong>, ` +
@@ -330,10 +396,27 @@ if (typeof S.avg_vol_M === 'number') {
     : 'média diária do período';
 }
 
+if (typeof S.max_drawdown_pct === 'number') {
+  el('ddMaxVal').textContent = fmt(S.max_drawdown_pct) + '%';
+  const recup = S.max_drawdown_recuperado
+    ? `recuperado em ${S.max_drawdown_recuperado}`
+    : 'ainda não recuperado';
+  el('ddMaxSub').textContent = `${S.max_drawdown_de} → ${S.max_drawdown_ate} · ${recup}`;
+}
+if (typeof S.drawdown_atual_pct === 'number') {
+  const dd = S.drawdown_atual_pct;
+  el('ddNowVal').textContent = (dd >= -0.005 ? '0,00' : fmt(dd)) + '%';
+  el('ddNowVal').className = 'value ' + (dd >= -0.005 ? 'up' : (dd < -20 ? 'down' : 'gold'));
+  el('ddNowSub').textContent = `topo de R$ ${fmt(S.ath_close)} em ${S.ath_date}`;
+}
+
 el('footerTxt').textContent =
   `Projeto Bloomberg · pipeline ETL (raw → silver → gold) · preços de fechamento não ajustados por ` +
   `proventos — o indicador "Retorno no período" soma separadamente os dividendos e JCP pagos por ação · ` +
-  `indicadores calculados no navegador · rotina executada em ${S.updated} · isto não é recomendação de investimento`;
+  `indicadores calculados no navegador · rotina executada em ${S.updated} · isto não é recomendação de investimento` +
+  (S.close_source === 'meta'
+    ? ` · o fechamento de ${S.last_date} veio do campo de cotação da fonte porque a barra do dia veio sem esse valor`
+    : '');
 
 if (SEM_CHART) {
   el('footerTxt').textContent =
@@ -388,6 +471,7 @@ const XT_CANDLE = MOBILE ? 6 : 13;
 const XT_FULL = MOBILE ? 6 : 16;
 if (MOBILE) Chart.defaults.font.size = 10;
 const RESP = { responsive:true, maintainAspectRatio:false };
+const ALTA = 'rgba(63,185,80,.9)', BAIXA = 'rgba(248,81,73,.9)';
 
 // ===== candlestick DIÁRIO (novo) =====
 // É aqui que o último pregão aparece isolado, e não diluído dentro do candle
@@ -395,16 +479,29 @@ const RESP = { responsive:true, maintainAspectRatio:false };
 if (!hasDaily) {
   el('dailyChart').style.display = 'none';
   el('dailyRangeBtns').style.display = 'none';
+  el('dailyVolBox').style.display = 'none';
   el('dailyEmpty').style.display = 'block';
 } else {
-  const sma9Full = sma(D.c, 9), sma21Full = sma(D.c, 21);
+  const sma9Full = sma(D.c, 9), sma21Full = sma(D.c, 21), volMediaFull = sma(D.v, 21);
+  const volChart = new Chart(el('dailyVolChart'), {
+    type:'bar',
+    data:{ labels:[], datasets:[
+      { label:'Volume (M)', data:[], backgroundColor:'rgba(88,166,255,.45)' },
+      { type:'line', label:'Média 21', data:[], borderColor:'#ffdf5d', borderWidth:1.4, pointRadius:0, tension:.2 }
+    ]},
+    options:{ ...RESP,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=>ctx.dataset.label+': '+fmt1(ctx.raw)+' M' } } },
+      scales:{ x:{ ticks:{display:false}, grid:{display:false} },
+               y:{ beginAtZero:true, ticks:{maxTicksLimit:3, callback:v=>fmt1(v)+' M'} } } }
+  });
   const dailyChart = new Chart(el('dailyChart'), {
     type:'bar',
     data:{ labels:[], datasets:[
-      { label:'corpo', data:[], backgroundColor:[], barPercentage:.75, categoryPercentage:1, order:2 },
+      { label:'corpo', data:[], backgroundColor:[], borderColor:[], borderWidth:1.2, borderSkipped:false,
+        barPercentage:.75, categoryPercentage:1, order:2 },
       { label:'sombra', data:[], backgroundColor:[], barPercentage:.14, categoryPercentage:1, order:3 },
       { type:'line', label:'MM9', data:[], borderColor:'#d29922', borderWidth:1.6, pointRadius:0, tension:.2, order:1 },
-      { type:'line', label:'MM21', data:[], borderColor:'#bc8cff', borderWidth:1.6, pointRadius:0, tension:.2, order:1 }
+      { type:'line', label:'MM21', data:[], borderColor:'#ffdf5d', borderWidth:1.6, pointRadius:0, tension:.2, order:1 }
     ]},
     options:{
       ...RESP,
@@ -432,12 +529,20 @@ if (!hasDaily) {
     dailyChart.$win = w;
     dailyChart.data.labels = w.d;
     dailyChart.data.datasets[0].data = w.d.map((_,i)=>[Math.min(w.o[i],w.c[i]), Math.max(w.o[i],w.c[i])]);
-    dailyChart.data.datasets[0].backgroundColor = w.d.map((_,i)=> w.c[i]>=w.o[i] ? 'rgba(63,185,80,.9)' : 'rgba(248,81,73,.9)');
+    const corDoDia = w.d.map((_,i)=> w.c[i]>=w.o[i] ? ALTA : BAIXA);
+    // corpo cheio na alta, vazado na baixa: a forma repete o que a cor diz
+    dailyChart.data.datasets[0].backgroundColor = w.d.map((_,i)=> w.c[i]>=w.o[i] ? ALTA : 'transparent');
+    dailyChart.data.datasets[0].borderColor = corDoDia;
     dailyChart.data.datasets[1].data = w.d.map((_,i)=>[w.l[i], w.h[i]]);
-    dailyChart.data.datasets[1].backgroundColor = dailyChart.data.datasets[0].backgroundColor;
+    dailyChart.data.datasets[1].backgroundColor = corDoDia;
     dailyChart.data.datasets[2].data = sma9Full.slice(i0);
     dailyChart.data.datasets[3].data = sma21Full.slice(i0);
     dailyChart.update();
+    // o volume acompanha exatamente a mesma janela dos candles
+    volChart.data.labels = w.d;
+    volChart.data.datasets[0].data = w.v;
+    volChart.data.datasets[1].data = volMediaFull.slice(i0);
+    volChart.update();
   }
   setDailyRange(63);
   document.querySelectorAll('#dailyRangeBtns button').forEach(btn=>{
@@ -454,7 +559,11 @@ const N = Math.min(104, W.d.length), i0c = W.d.length - N;
 const cd = W.d.slice(i0c), co = W.o.slice(i0c), ch = W.h.slice(i0c), cl = W.l.slice(i0c), cc = W.c.slice(i0c);
 const wick = cd.map((_,i)=>[cl[i], ch[i]]);
 const body = cd.map((_,i)=>[Math.min(co[i],cc[i]), Math.max(co[i],cc[i])]);
-const bodyColor = cd.map((_,i)=> cc[i]>=co[i] ? 'rgba(63,185,80,.9)' : 'rgba(248,81,73,.9)');
+// Verde e vermelho são indistinguíveis sob deuteranopia (ΔE 2,2 em OKLab). Por
+// isso a alta/baixa também é codificada pela forma: corpo cheio na alta, corpo
+// vazado na baixa — o mesmo par de cores continua servindo a quem enxerga as duas.
+const bodyColor = cd.map((_,i)=> cc[i]>=co[i] ? ALTA : BAIXA);
+const bodyFill = cd.map((_,i)=> cc[i]>=co[i] ? ALTA : 'transparent');
 const sma20full = sma(W.c,20), sma52full = sma(W.c,52);
 const sma20win = sma20full.slice(i0c);
 const trend = linreg(cc);
@@ -477,7 +586,8 @@ el('trendSub').textContent = slopePct>2?'tendência de alta':(slopePct<-2?'tend�
 new Chart(el('candleChart'), {
   type:'bar',
   data:{ labels:cd, datasets:[
-    { label:'corpo', data:body, backgroundColor:bodyColor, barPercentage:.75, categoryPercentage:1, order:2 },
+    { label:'corpo', data:body, backgroundColor:bodyFill, borderColor:bodyColor, borderWidth:1.2,
+      borderSkipped:false, barPercentage:.75, categoryPercentage:1, order:2 },
     { label:'sombra', data:wick, backgroundColor:bodyColor, barPercentage:.14, categoryPercentage:1, order:3 },
     { type:'line', label:'MM20', data:sma20win, borderColor:'#d29922', borderWidth:1.6, pointRadius:0, tension:.2, order:1 },
     { type:'line', label:'Tendência', data:trend, borderColor:'#58a6ff', borderWidth:1.6, borderDash:[6,4], pointRadius:0, order:1 },
@@ -504,7 +614,7 @@ const priceChart = new Chart(el('priceChart'), {
   data:{ labels:priceFull.d, datasets:[
     { label:'Fechamento', data:priceFull.c, borderColor:'#58a6ff', backgroundColor:'rgba(88,166,255,.10)', fill:true, tension:.25, pointRadius:0, borderWidth:1.4 },
     { label:'MM20', data:priceFull.sma20, borderColor:'#d29922', pointRadius:0, borderWidth:1.2, tension:.2 },
-    { label:'MM52', data:priceFull.sma52, borderColor:'#bc8cff', pointRadius:0, borderWidth:1.2, tension:.2 },
+    { label:'MM52', data:priceFull.sma52, borderColor:'#ffdf5d', pointRadius:0, borderWidth:1.2, tension:.2 },
     { type:'scatter', label:'Provento', data:divMarker(priceFull.d, priceFull.c, priceFull.e), backgroundColor:'#d29922', borderColor:'#d29922', pointStyle:'triangle', pointRadius:5, pointHoverRadius:7, showLine:false }
   ]},
   options:{
@@ -570,6 +680,111 @@ new Chart(el('volChart'), {
   data:{ labels:W.d, datasets:[{ label:'Volume (M)', data:W.v, backgroundColor:'rgba(88,166,255,.45)' }] },
   options:{ ...RESP, plugins:{legend:{display:false}}, scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{ticks:{callback:v=>fmt1(v)+' M'}} } }
 });
+
+// ===== PETR4 x indice de referencia, base 100 =====
+// Uma escala só para as duas séries: em vez de dois eixos y (que deixariam a
+// comparação à mercê da escolha das escalas), as duas partem de 100 no início
+// da janela e a distância entre as linhas é o desempenho relativo.
+const REF = P.REF || null;
+if (!REF || !REF.W || !REF.W.some(v => v !== null)) {
+  el('cmpChart').style.display = 'none';
+  el('cmpRangeBtns').style.display = 'none';
+  el('cmpEmpty').style.display = 'block';
+} else {
+  el('cmpNome').textContent = REF.nome || 'índice';
+  const cmpChart = new Chart(el('cmpChart'), {
+    type:'line',
+    data:{ labels:[], datasets:[
+      { label:'PETR4', data:[], borderColor:'#58a6ff', backgroundColor:'rgba(88,166,255,.10)', fill:true, borderWidth:1.6, pointRadius:0, tension:.25 },
+      { label:REF.nome || 'índice', data:[], borderColor:'#d29922', borderWidth:1.6, pointRadius:0, tension:.25, borderDash:[5,3] }
+    ]},
+    options:{ ...RESP,
+      plugins:{ legend:{display:true, labels:{boxWidth:12}},
+        tooltip:{ mode:'index', intersect:false, callbacks:{
+          label:(ctx)=> ctx.dataset.label + ': ' + fmt(ctx.raw) + ' (base 100)' } } },
+      interaction:{mode:'index',intersect:false},
+      scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{ beginAtZero:false, ticks:{callback:v=>fmt1(v)} } } }
+  });
+
+  function setCmpRange(weeks){
+    const n = weeks > 0 ? Math.min(weeks, W.d.length) : W.d.length;
+    let i0 = W.d.length - n;
+    // a base tem de ser um ponto em que as duas séries existem
+    while (i0 < W.d.length && (REF.W[i0] === null || REF.W[i0] === undefined)) i0++;
+    const baseA = W.c[i0], baseB = REF.W[i0];
+    cmpChart.data.labels = W.d.slice(i0);
+    cmpChart.data.datasets[0].data = W.c.slice(i0).map(v => +(v / baseA * 100).toFixed(2));
+    cmpChart.data.datasets[1].data = REF.W.slice(i0).map(v => v === null ? null : +(v / baseB * 100).toFixed(2));
+    cmpChart.update();
+  }
+  setCmpRange(104);
+  document.querySelectorAll('#cmpRangeBtns button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#cmpRangeBtns button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      setCmpRange(parseInt(btn.dataset.w,10));
+    });
+  });
+}
+
+// ===== drawdown semanal =====
+const ddSerie = (() => {
+  let pico = -Infinity;
+  return W.c.map(c => { if (c > pico) pico = c; return +((c / pico - 1) * 100).toFixed(2); });
+})();
+new Chart(el('ddChart'), {
+  type:'line',
+  data:{ labels:W.d, datasets:[
+    { label:'Drawdown', data:ddSerie, borderColor:'#f85149', backgroundColor:'rgba(248,81,73,.16)', fill:true, borderWidth:1.4, pointRadius:0, tension:.2 }
+  ]},
+  options:{ ...RESP,
+    plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=> fmt(ctx.raw) + '% abaixo do topo' } } },
+    scales:{ x:{ticks:{maxTicksLimit:XT_FULL}}, y:{ max:0, ticks:{callback:v=>fmt1(v)+'%'} } } }
+});
+
+// ===== heatmap de retornos mensais =====
+// Escala divergente: verde para alta, vermelho para queda, e o meio é a própria
+// superfície do painel (cinza neutro, sem matiz). O alfa máximo é 0,55 porque
+// acima disso o número dentro da célula deixa de passar em contraste AA.
+const M = P.M || null;
+const ALFA_MAX = 0.55, ALFA_MIN = 0.10, SATURA_EM = 15;  // 15% satura a escala
+function corRetorno(r){
+  if (r === null || r === undefined) return 'transparent';
+  const mag = Math.min(Math.abs(r) / SATURA_EM, 1);
+  const a = (ALFA_MIN + mag * (ALFA_MAX - ALFA_MIN)).toFixed(3);
+  return `rgba(${r >= 0 ? '63,185,80' : '248,81,73'},${a})`;
+}
+if (!M || !M.d || !M.d.length) {
+  el('heatTable').style.display = 'none';
+  el('heatEmpty').style.display = 'block';
+} else {
+  const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const porAno = {};
+  M.d.forEach((ym, i) => {
+    const [ano, mes] = ym.split('-');
+    (porAno[ano] = porAno[ano] || Array(12).fill(null))[parseInt(mes,10)-1] = M.r[i];
+  });
+  const anos = Object.keys(porAno).sort().reverse();
+  let html = '<thead><tr><th scope="col"></th>' + MESES.map(m=>`<th scope="col">${m}</th>`).join('')
+           + '<th scope="col">ano</th></tr></thead><tbody>';
+  for (const ano of anos) {
+    const meses = porAno[ano];
+    const presentes = meses.filter(v => v !== null);
+    const composto = presentes.length
+      ? (presentes.reduce((acc,v)=>acc*(1+v/100), 1) - 1) * 100 : null;
+    const parcial = presentes.length < 12;
+    html += `<tr><th scope="row">${ano}</th>`;
+    html += meses.map((v,i)=> v === null
+      ? '<td class="vazio" aria-label="sem dado">·</td>'
+      : `<td style="background:${corRetorno(v)}" title="${MESES[i]}/${ano}: ${fmtSigned(v)}%">${fmtSigned(v)}</td>`).join('');
+    html += composto === null ? '<td class="vazio ano">·</td>'
+      : `<td class="ano" style="background:${corRetorno(composto)}" title="${ano}${parcial ? ' (ano parcial: ' + presentes.length + ' meses)' : ''}: ${fmtSigned(composto)}%">${fmtSigned(composto)}${parcial ? '*' : ''}</td>`;
+    html += '</tr>';
+  }
+  el('heatTable').innerHTML = html + '</tbody>';
+  [[-15,'legNeg3'],[-8,'legNeg2'],[-3,'legNeg1'],[0,'legZero'],[3,'legPos1'],[8,'legPos2'],[15,'legPos3']]
+    .forEach(([v,id]) => { el(id).style.background = corRetorno(v); });
+}
 
 })();
 </script>

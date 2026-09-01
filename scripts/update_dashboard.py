@@ -299,6 +299,59 @@ def confere_sem_regressao(novas_stats: dict, anterior: dict | None) -> None:
             f"regressão detectada: {novas_stats['days']} pregões coletados contra "
             f"{antes['days']} já publicados"
         )
+    # A mínima da série só cai quando a ação de fato negocia mais baixo do que
+    # em qualquer pregão desde 2010. Um tombo grande aí é sinal de barra suja,
+    # não de mercado: foi assim que um zero virou "mínima histórica R$ 0,00".
+    minima_antes = antes.get("min_low")
+    minima_agora = novas_stats.get("min_low")
+    if minima_antes and minima_agora is not None and minima_agora < minima_antes * 0.5:
+        raise DadosDesatualizadosError(
+            f"mínima da série despencou de R$ {minima_antes:.2f} para "
+            f"R$ {minima_agora:.2f} em uma única coleta — quase certamente barra suja"
+        )
+
+
+# Campos de ``stats`` que são preço ou volume e, portanto, nunca podem ser
+# negativos; os de preço também não podem ser zero.
+PRECOS_EM_STATS = (
+    "last_close",
+    "prev_close",
+    "first_close",
+    "day_open",
+    "day_high",
+    "day_low",
+    "max_high",
+    "min_low",
+    "ath_close",
+)
+
+
+def confere_precos_possiveis(payload: dict) -> None:
+    """Última trava antes de escrever: nenhum preço publicado pode ser ≤ 0.
+
+    A coleta já peneira barras impossíveis. Isto aqui é a rede embaixo da rede,
+    e existe porque em 2026-08-31 um zero atravessou a coleta, entrou no
+    ``data.js`` e virou a "mínima histórica" exibida no dashboard. Uma trava que
+    olha o payload **pronto** não depende de nenhum caminho específico da
+    coleta — vale também para os que forem acrescentados depois.
+    """
+    stats = payload["stats"]
+    ruins = [campo for campo in PRECOS_EM_STATS if (stats.get(campo) or 0) <= 0]
+    if ruins:
+        raise DadosDesatualizadosError(
+            "preço impossível em stats: " + ", ".join(f"{c}={stats.get(c)!r}" for c in ruins)
+        )
+    if stats.get("day_volume_M", 0) < 0:
+        raise DadosDesatualizadosError(f"volume negativo: {stats['day_volume_M']}")
+
+    for bloco in ("D", "W"):
+        serie = payload.get(bloco) or {}
+        for campo in ("o", "h", "l", "c"):
+            for data, valor in zip(serie.get("d", []), serie.get(campo, []), strict=True):
+                if valor is None or valor <= 0:
+                    raise DadosDesatualizadosError(
+                        f"preço impossível em {bloco}.{campo} no pregão de {data}: {valor!r}"
+                    )
 
 
 def monta_payload(
@@ -374,6 +427,7 @@ def main() -> int:
     payload = monta_payload(linhas, proventos, referencia, pendente)
 
     try:
+        confere_precos_possiveis(payload)
         confere_sem_regressao(payload["stats"], anterior)
     except DadosDesatualizadosError as exc:
         print(f"[update] ERRO: {exc}", file=sys.stderr)

@@ -31,6 +31,7 @@ Nenhum calendário de feriados é necessário — ``regularMarketTime`` já resp
 
 from __future__ import annotations
 
+import math
 import time
 from datetime import UTC, datetime
 from urllib.parse import quote
@@ -49,6 +50,11 @@ RETRIABLE_STATUS = {401, 403, 429, 500, 502, 503, 504}
 TENTATIVAS = 4
 ESPERA_BASE = 5.0  # segundos; dobra a cada tentativa (5, 10, 20)
 TIMEOUT = 60
+
+# Folga aceita entre os campos de uma mesma barra. O Yahoo arredonda open,
+# high, low e close separadamente, então uma barra legítima pode sair alguns
+# centésimos fora da faixa. 0,5% barra lixo sem derrubar arredondamento.
+TOLERANCIA_OHLC = 0.005
 
 
 class ErroTransitorio(RuntimeError):
@@ -95,12 +101,54 @@ def _requisita(host: str, symbol: str, params: dict) -> dict:
     return resultados[0]
 
 
+def preco_possivel(x: object) -> float | None:
+    """Converte para ``float`` só o que pode ser preço de uma ação listada.
+
+    Devolve ``None`` para nulo, para o que não é número, para NaN/infinito e
+    para qualquer valor **menor ou igual a zero**. Foi essa última peneira que
+    faltou em 2026-08-31: o Yahoo entregou a barra do pregão com ``open``,
+    ``high``, ``low`` e ``volume`` iguais a ``0`` (não ``null``) e o fechamento
+    correto. A checagem de então só olhava ``None``, os zeros passaram, e o
+    dashboard publicou abertura, máxima, mínima e volume zerados — e, pior, uma
+    "mínima histórica" de R$ 0,00, porque o zero virou o menor valor da série
+    inteira.
+    """
+    if x is None or isinstance(x, bool):
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v) or v <= 0:
+        return None
+    return v
+
+
+def barra_coerente(o: float, h: float, low: float, c: float) -> bool:
+    """A barra descreve um pregão possível?
+
+    Máxima abaixo da mínima, ou abertura/fechamento fora da faixa do dia, não
+    descrevem pregão nenhum. A tolerância existe porque o Yahoo arredonda cada
+    campo por conta própria e uma barra boa às vezes fica alguns centavos
+    incoerente; o que se barra aqui é lixo, não arredondamento.
+    """
+    if h < low:
+        return False
+    return low * (1 - TOLERANCIA_OHLC) <= min(o, c) and max(o, c) <= h * (1 + TOLERANCIA_OHLC)
+
+
 def extrai_pregoes(res: dict) -> list[dict]:
     """Converte a resposta em linhas diárias completas.
 
-    Descarta barras com qualquer campo OHLC nulo: o Yahoo publica barras
-    parciais (todos os campos ``null``) enquanto consolida o pregão, e
-    arredondá-las adiante quebraria a rotina.
+    Descarta a barra inteira quando qualquer campo OHLC é nulo, impossível
+    (zero ou negativo) ou incoerente com os demais. O Yahoo publica barras
+    parciais enquanto consolida o pregão — às vezes com ``null``, às vezes com
+    ``0`` — e arredondar isso adiante contamina a série toda.
+
+    Barra descartada não é reinventada: a série simplesmente não alcança aquele
+    pregão, ``valida_atualidade`` marca a pendência, e a repescagem da manhã
+    seguinte pega a barra já consolidada. É o que se quer — publicar um pregão
+    com número inventado seria pior do que publicá-lo algumas horas depois.
     """
     meta = res.get("meta") or {}
     offset = int(meta.get("gmtoffset") or 0)
@@ -116,19 +164,20 @@ def extrai_pregoes(res: dict) -> list[dict]:
     linhas = []
     for i, ts in enumerate(timestamps):
         try:
-            o, h, low, c = abertura[i], maxima[i], minima[i], fechamento[i]
+            bruto = (abertura[i], maxima[i], minima[i], fechamento[i])
         except IndexError:
             continue
-        if o is None or h is None or low is None or c is None:
+        o, h, low, c = (preco_possivel(x) for x in bruto)
+        if None in (o, h, low, c) or not barra_coerente(o, h, low, c):
             continue
         vol = volume[i] if i < len(volume) else 0
         linhas.append(
             {
                 "d": data_da_bolsa(ts, offset),
-                "o": float(o),
-                "h": float(h),
-                "l": float(low),
-                "c": float(c),
+                "o": o,
+                "h": h,
+                "l": low,
+                "c": c,
                 "v": int(vol or 0),
             }
         )
@@ -198,16 +247,20 @@ def recupera_fechamento_do_meta(res: dict, linhas: list[dict]) -> tuple[list[dic
     cotacoes = ((res.get("indicators") or {}).get("quote") or [{}])[0]
     i = len(timestamps) - 1
     try:
-        o = cotacoes["open"][i]
-        h = cotacoes["high"][i]
-        low = cotacoes["low"][i]
+        o = preco_possivel(cotacoes["open"][i])
+        h = preco_possivel(cotacoes["high"][i])
+        low = preco_possivel(cotacoes["low"][i])
     except (KeyError, IndexError):
         return linhas, None
-    if o is None or h is None or low is None:
+    if None in (o, h, low):
+        # Abertura, máxima ou mínima ausentes ou impossíveis. O ``meta`` traz
+        # regularMarketDayHigh/Low/Volume, mas **não** traz a abertura — não há
+        # de onde tirar esse campo sem inventá-lo, então a barra não é
+        # recomposta. Fica pendente e a repescagem da manhã resolve.
         return linhas, None
 
-    fechamento = float(preco)
-    if not (float(low) <= fechamento <= float(h)):
+    fechamento = preco_possivel(preco)
+    if fechamento is None or not (low <= fechamento <= h):
         return linhas, None  # incoerente com a própria barra: não usa
 
     volumes = cotacoes.get("volume") or []

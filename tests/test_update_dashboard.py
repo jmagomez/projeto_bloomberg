@@ -243,3 +243,40 @@ def test_close_source_marca_fechamento_vindo_do_meta():
     serie = [dict(p) for p in SERIE]
     serie[-1]["c_de_meta"] = True
     assert ud.monta_payload(serie, {})["stats"]["close_source"] == "meta"
+
+
+# ---------------------------------------------------------------------------
+# Travas de sanidade do payload pronto (incidente de 2026-08-31).
+# ---------------------------------------------------------------------------
+
+
+def test_payload_com_preco_zerado_nao_e_publicado():
+    serie = [dict(p) for p in SERIE]
+    serie[-1]["l"] = 0.0
+    payload = ud.monta_payload(serie, {})
+    with pytest.raises(DadosDesatualizadosError, match="impossível"):
+        ud.confere_precos_possiveis(payload)
+
+
+def test_payload_com_abertura_zerada_nao_e_publicado():
+    serie = [dict(p) for p in SERIE]
+    serie[-1]["o"] = 0.0
+    with pytest.raises(DadosDesatualizadosError, match="impossível"):
+        ud.confere_precos_possiveis(ud.monta_payload(serie, {}))
+
+
+def test_payload_saudavel_passa_na_trava():
+    ud.confere_precos_possiveis(ud.monta_payload([dict(p) for p in SERIE], {}))
+
+
+def test_minima_que_despenca_e_barrada():
+    anterior = {"stats": {"last_date": "2026-08-20", "days": 9, "min_low": 4.12}}
+    novas = {"last_date": "2026-08-21", "days": 10, "min_low": 0.0}
+    with pytest.raises(DadosDesatualizadosError, match="despencou"):
+        ud.confere_sem_regressao(novas, anterior)
+
+
+def test_minima_que_cai_dentro_do_razoavel_passa():
+    anterior = {"stats": {"last_date": "2026-08-20", "days": 9, "min_low": 4.12}}
+    novas = {"last_date": "2026-08-21", "days": 10, "min_low": 3.90}
+    ud.confere_sem_regressao(novas, anterior)  # não levanta

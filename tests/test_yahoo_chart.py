@@ -217,3 +217,60 @@ def test_nao_recompoe_sem_preco_no_meta():
     res = resposta_close_nulo(None)
     _, recomposta = yc.recupera_fechamento_do_meta(res, yc.extrai_pregoes(res))
     assert recomposta is None
+
+
+# ---------------------------------------------------------------------------
+# Valores impossíveis (incidente de 2026-08-31: o Yahoo entregou a barra do
+# pregão com open/high/low/volume iguais a 0 — não nulos — e o fechamento
+# correto. A peneira de então só olhava None, o zero passou, e o dashboard
+# publicou "mínima histórica R$ 0,00").
+# ---------------------------------------------------------------------------
+
+
+def test_preco_possivel_recusa_zero_negativo_e_nao_numero():
+    assert yc.preco_possivel(43.55) == 43.55
+    assert yc.preco_possivel("43.55") == 43.55
+    for ruim in (None, 0, 0.0, -1, -0.01, float("nan"), float("inf"), "", "abc", True, False):
+        assert yc.preco_possivel(ruim) is None, ruim
+
+
+def test_barra_coerente_recusa_maxima_abaixo_da_minima():
+    assert yc.barra_coerente(10.0, 11.0, 9.0, 10.5)
+    assert not yc.barra_coerente(10.0, 9.0, 11.0, 10.5)
+
+
+def test_barra_coerente_recusa_fechamento_fora_da_faixa():
+    assert not yc.barra_coerente(10.0, 11.0, 9.0, 20.0)
+    assert not yc.barra_coerente(2.0, 11.0, 9.0, 10.0)
+
+
+def test_barra_coerente_tolera_arredondamento_da_fonte():
+    # 9,00 de mínima com fechamento 8,99 é arredondamento, não lixo.
+    assert yc.barra_coerente(10.0, 11.0, 9.0, 8.99)
+
+
+def test_barra_com_ohlv_zerado_e_descartada():
+    """O incidente de 2026-08-31, reproduzido com os números reais do dia."""
+    res = resposta([TS_QUI_20, TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+    q = res["indicators"]["quote"][0]
+    q["open"][1] = q["high"][1] = q["low"][1] = 0
+    q["volume"][1] = 0
+    q["close"][1] = 45.02  # o fechamento veio certo; o resto veio zerado
+    linhas = yc.extrai_pregoes(res)
+    assert [linha["d"] for linha in linhas] == ["2026-08-20"]
+
+    # E não é recomposta pelo meta: o meta não traz a abertura do pregão.
+    res["meta"]["regularMarketPrice"] = 45.02
+    linhas, recomposta = yc.recupera_fechamento_do_meta(res, linhas)
+    assert recomposta is None
+    assert [linha["d"] for linha in linhas] == ["2026-08-20"]
+
+    # A pendência é sinalizada, e a repescagem seguinte é quem resolve.
+    _, _, pendente = yc.valida_atualidade(linhas, yc.estado_do_mercado(res))
+    assert pendente == "2026-08-21"
+
+
+def test_barra_boa_ao_lado_de_barra_zerada_sobrevive():
+    res = resposta([TS_QUI_20, TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+    res["indicators"]["quote"][0]["low"][0] = 0
+    assert [linha["d"] for linha in yc.extrai_pregoes(res)] == ["2026-08-21"]

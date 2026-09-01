@@ -125,25 +125,47 @@ def preco_possivel(x: object) -> float | None:
 
 
 def barra_coerente(o: float, h: float, low: float, c: float) -> bool:
-    """A barra descreve um pregão possível?
+    """A barra descreve um pregão estruturalmente possível?
 
-    Máxima abaixo da mínima, ou abertura/fechamento fora da faixa do dia, não
-    descrevem pregão nenhum. A tolerância existe porque o Yahoo arredonda cada
-    campo por conta própria e uma barra boa às vezes fica alguns centavos
-    incoerente; o que se barra aqui é lixo, não arredondamento.
+    A única checagem é ``high >= low``: máxima abaixo da mínima não descreve
+    pregão nenhum, em nenhuma leitura.
+
+    **Por que não checar também se abertura e fechamento caem dentro da faixa
+    do dia.** Era o que esta função fazia na primeira versão, e ela descartava
+    2014-04-02 — pregão real, volume real de 66 M, em que o Yahoo publica
+    ``close`` 15,56 contra ``low`` 15,70. Os 0,9% de inconsistência são um
+    defeito antigo do histórico da fonte, não uma barra suja: cada campo é uma
+    observação legítima. Descartá-la abriria um buraco de um dia na série desde
+    2010, e a trava de regressão barrou a publicação — corretamente.
+
+    Preço fora da faixa não fica sem registro: ``fora_da_faixa`` marca a barra
+    para o log, sem removê-la. Quem separa lixo de ruído aqui é
+    ``preco_possivel`` — zero e negativo são impossíveis e continuam barrados,
+    e era só disso que a barra de 2026-08-31 precisava.
     """
-    if h < low:
-        return False
-    return low * (1 - TOLERANCIA_OHLC) <= min(o, c) and max(o, c) <= h * (1 + TOLERANCIA_OHLC)
+    return h >= low
+
+
+def fora_da_faixa(o: float, h: float, low: float, c: float) -> bool:
+    """Abertura ou fechamento fora da faixa ``[low, high]`` da própria barra.
+
+    Não reprova a barra — só merece uma linha no log. A tolerância existe
+    porque o Yahoo arredonda cada campo por conta própria.
+    """
+    return not (low * (1 - TOLERANCIA_OHLC) <= min(o, c) and max(o, c) <= h * (1 + TOLERANCIA_OHLC))
 
 
 def extrai_pregoes(res: dict) -> list[dict]:
     """Converte a resposta em linhas diárias completas.
 
     Descarta a barra inteira quando qualquer campo OHLC é nulo, impossível
-    (zero ou negativo) ou incoerente com os demais. O Yahoo publica barras
-    parciais enquanto consolida o pregão — às vezes com ``null``, às vezes com
-    ``0`` — e arredondar isso adiante contamina a série toda.
+    (zero, negativo, NaN) ou estruturalmente absurdo (máxima abaixo da mínima).
+    O Yahoo publica barras parciais enquanto consolida o pregão — às vezes com
+    ``null``, às vezes com ``0`` — e arrastar isso adiante contamina a série
+    toda: em 2026-08-31 um zero virou a "mínima histórica" do dashboard.
+
+    Inconsistência leve **não** descarta: a barra vai marcada com
+    ``fora_faixa`` para o log e é publicada como veio. Ver ``barra_coerente``.
 
     Barra descartada não é reinventada: a série simplesmente não alcança aquele
     pregão, ``valida_atualidade`` marca a pendência, e a repescagem da manhã
@@ -171,16 +193,17 @@ def extrai_pregoes(res: dict) -> list[dict]:
         if None in (o, h, low, c) or not barra_coerente(o, h, low, c):
             continue
         vol = volume[i] if i < len(volume) else 0
-        linhas.append(
-            {
-                "d": data_da_bolsa(ts, offset),
-                "o": o,
-                "h": h,
-                "l": low,
-                "c": c,
-                "v": int(vol or 0),
-            }
-        )
+        linha = {
+            "d": data_da_bolsa(ts, offset),
+            "o": o,
+            "h": h,
+            "l": low,
+            "c": c,
+            "v": int(vol or 0),
+        }
+        if fora_da_faixa(o, h, low, c):
+            linha["fora_faixa"] = True
+        linhas.append(linha)
     return linhas
 
 

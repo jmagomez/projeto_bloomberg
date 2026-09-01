@@ -280,3 +280,14 @@ def test_minima_que_cai_dentro_do_razoavel_passa():
     anterior = {"stats": {"last_date": "2026-08-20", "days": 9, "min_low": 4.12}}
     novas = {"last_date": "2026-08-21", "days": 10, "min_low": 3.90}
     ud.confere_sem_regressao(novas, anterior)  # não levanta
+
+
+def test_marca_fora_faixa_nao_vaza_para_o_payload():
+    """A marca é para o log; o data.js publica só os campos de sempre."""
+    serie = [dict(p) for p in SERIE]
+    serie[-1]["fora_faixa"] = True
+    payload = ud.monta_payload(serie, {})
+    assert "fora_faixa" not in payload["D"]
+    assert "fora_faixa" not in payload["W"]
+    assert "fora_faixa" not in payload["stats"]
+    ud.confere_precos_possiveis(payload)  # e continua publicável

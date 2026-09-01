@@ -239,14 +239,30 @@ def test_barra_coerente_recusa_maxima_abaixo_da_minima():
     assert not yc.barra_coerente(10.0, 9.0, 11.0, 10.5)
 
 
-def test_barra_coerente_recusa_fechamento_fora_da_faixa():
-    assert not yc.barra_coerente(10.0, 11.0, 9.0, 20.0)
-    assert not yc.barra_coerente(2.0, 11.0, 9.0, 10.0)
+def test_preco_fora_da_faixa_e_marcado_mas_nao_reprova_a_barra():
+    """2014-04-02 existe: close 15,56 contra low 15,70, com 66 M de volume.
+
+    É defeito antigo do histórico do Yahoo, não barra suja. Descartar abriria um
+    buraco de um dia na série desde 2010, então a barra fica — só marcada.
+    """
+    assert yc.barra_coerente(15.71, 16.60, 15.70, 15.56)
+    assert yc.fora_da_faixa(15.71, 16.60, 15.70, 15.56)
+    assert [linha["d"] for linha in yc.extrai_pregoes(_resposta_de_2014())] == ["2014-04-02"]
 
 
-def test_barra_coerente_tolera_arredondamento_da_fonte():
-    # 9,00 de mínima com fechamento 8,99 é arredondamento, não lixo.
-    assert yc.barra_coerente(10.0, 11.0, 9.0, 8.99)
+def _resposta_de_2014():
+    res = resposta([TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+    res["timestamp"] = [1396407600]  # 2014-04-02 10:00 BRT
+    q = res["indicators"]["quote"][0]
+    q["open"], q["high"], q["low"], q["close"] = [15.71], [16.60], [15.70], [15.56]
+    q["volume"] = [66007000]
+    return res
+
+
+def test_fora_da_faixa_tolera_arredondamento_da_fonte():
+    # 9,00 de mínima com fechamento 8,99 é arredondamento, não anomalia.
+    assert not yc.fora_da_faixa(10.0, 11.0, 9.0, 8.99)
+    assert yc.fora_da_faixa(10.0, 11.0, 9.0, 20.0)
 
 
 def test_barra_com_ohlv_zerado_e_descartada():

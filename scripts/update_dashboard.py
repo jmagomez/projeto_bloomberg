@@ -441,6 +441,13 @@ def main() -> int:
             f"::warning::Publicado até {s['last_date']}, mas a fonte informa que o pregão "
             f"de {pendente} já fechou e não o entregou. O dashboard sinaliza a pendência."
         )
+    if linhas[-1].get("fora_faixa"):
+        print(
+            f"::warning::A barra de {s['last_date']} veio da fonte com abertura ou "
+            f"fechamento fora da própria faixa do dia (A {s['day_open']} · F "
+            f"{s['last_close']} · faixa {s['day_low']}–{s['day_high']}). Publicada "
+            "como veio — nenhum campo foi corrigido."
+        )
     if s["close_source"] == "meta":
         print(
             f"::notice::O fechamento de {s['last_date']} veio de 'meta.regularMarketPrice' "

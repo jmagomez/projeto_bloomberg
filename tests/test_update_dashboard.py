@@ -104,7 +104,8 @@ def test_dividend_yield_usa_o_ultimo_fechamento():
 
 def test_payload_tem_os_blocos_esperados():
     payload = ud.monta_payload([dict(p) for p in SERIE], {"2026-08-11": 0.5})
-    assert set(payload) == {"stats", "D", "W", "M", "DIV"}
+    # TR e RISCO saem sempre: dependem só da própria série da PETR4.
+    assert set(payload) == {"stats", "D", "W", "M", "DIV", "TR", "RISCO"}
     assert payload["DIV"] == {"y": ["2026"], "v": [0.5]}
     assert payload["D"]["e"][1] == 0.5  # provento marcado no dia certo
     assert json.dumps(payload)  # serializável
@@ -224,7 +225,7 @@ def test_alinha_referencia_sem_dados_devolve_vazio():
 def test_payload_traz_os_blocos_novos():
     ref = {p["d"]: 100.0 + i for i, p in enumerate(SERIE)}
     payload = ud.monta_payload([dict(p) for p in SERIE], {}, ref, pendente="2026-08-24")
-    assert set(payload) == {"stats", "D", "W", "M", "DIV", "REF"}
+    assert set(payload) == {"stats", "D", "W", "M", "DIV", "REF", "TR", "RISCO"}
     assert payload["stats"]["pending_session"] == "2026-08-24"
     assert payload["stats"]["close_source"] == "chart"
     assert payload["stats"]["max_drawdown_pct"] <= 0
@@ -236,6 +237,9 @@ def test_payload_traz_os_blocos_novos():
 def test_payload_sem_referencia_omite_o_bloco():
     payload = ud.monta_payload([dict(p) for p in SERIE], {}, {}, None)
     assert "REF" not in payload
+    # e sem as séries setoriais, os painéis delas também somem
+    assert "BRENT" not in payload
+    assert "PARES" not in payload
     assert payload["stats"]["pending_session"] is None
 
 
@@ -291,3 +295,92 @@ def test_marca_fora_faixa_nao_vaza_para_o_payload():
     assert "fora_faixa" not in payload["W"]
     assert "fora_faixa" not in payload["stats"]
     ud.confere_precos_possiveis(payload)  # e continua publicável
+
+
+# ---------------------------------------------------------------------------
+# Amostragem semanal e blocos analíticos
+# ---------------------------------------------------------------------------
+
+
+def test_amostra_semanal_pega_a_ultima_observacao_de_cada_semana():
+    datas = [p["d"] for p in SERIE]  # 10-14/08 e 17-21/08 de 2026
+    valores = list(range(10))
+    d, (v,) = ud.amostra_semanal(datas, valores)
+    assert d == ["2026-08-14", "2026-08-21"]
+    assert v == [4, 9]  # sexta de cada semana
+
+
+def test_amostra_semanal_nao_recalcula_nada():
+    """Amostrar não é suavizar: cada ponto publicado existiu naquele pregão."""
+    datas = [p["d"] for p in SERIE]
+    valores = [10.0, 99.0, 10.0, 10.0, 7.5, 1, 2, 3, 4, 42.0]
+    _, (v,) = ud.amostra_semanal(datas, valores)
+    assert v == [7.5, 42.0]
+    assert all(x in valores for x in v)
+
+
+def test_amostra_semanal_com_serie_vazia():
+    assert ud.amostra_semanal([], []) == ([], [[]])
+
+
+def test_amostra_semanal_preserva_varias_series_alinhadas():
+    datas = [p["d"] for p in SERIE]
+    a, b = list(range(10)), list(range(100, 110))
+    d, (sa, sb) = ud.amostra_semanal(datas, a, b)
+    assert len(d) == len(sa) == len(sb) == 2
+    assert sb == [104, 109]
+
+
+def test_blocos_sem_auxiliares_traz_so_o_que_depende_da_propria_serie():
+    blocos, resumo = ud.blocos_analiticos([dict(p) for p in SERIE], {}, {})
+    assert set(blocos) == {"TR", "RISCO"}
+    assert "faixa_pct" in resumo  # a faixa de 52 semanas sai da própria série
+
+
+def test_bloco_brent_exige_brent_e_cambio():
+    linhas = [dict(p) for p in SERIE]
+    datas = [linha["d"] for linha in linhas]
+    brent = {d: 80.0 + i for i, d in enumerate(datas)}
+    blocos, _ = ud.blocos_analiticos(linhas, {}, {"brent": brent})
+    assert "BRENT" not in blocos  # sem câmbio não há Brent em reais
+    blocos, resumo = ud.blocos_analiticos(
+        linhas, {}, {"brent": brent, "cambio": {d: 5.0 for d in datas}}
+    )
+    assert "BRENT" in blocos
+    assert resumo["brent_usd"] == 89.0
+    assert resumo["brent_brl"] == 445.0
+
+
+def test_painel_do_adr_nao_sai_se_a_razao_nao_bater():
+    """Se um reagrupamento mudasse a razão, o painel some em vez de mentir."""
+    linhas = [dict(p) for p in SERIE]
+    datas = [linha["d"] for linha in linhas]
+    cambio = {d: 5.0 for d in datas}
+    # ADR precificado como se fossem 5 ações por ADR, com a constante em 2
+    adr = {d: linha["c"] * 5 / 5.0 for d, linha in zip(datas, linhas, strict=True)}
+    blocos, resumo = ud.blocos_analiticos(linhas, {}, {"cambio": cambio, "adr": adr})
+    assert "PARES" not in blocos
+    assert "adr_premio_pct" not in resumo
+
+
+def test_bloco_pares_sai_com_a_ordinaria_mesmo_sem_adr():
+    linhas = [dict(p) for p in SERIE]
+    datas = [linha["d"] for linha in linhas]
+    on = {d: linha["c"] * 1.1 for d, linha in zip(datas, linhas, strict=True)}
+    blocos, resumo = ud.blocos_analiticos(linhas, {}, {"on": on})
+    assert blocos["PARES"]["adr"] is None
+    assert resumo["on_pn"] == pytest.approx(1.1, abs=0.001)
+
+
+def test_resumo_traz_a_volatilidade_por_prazo():
+    linhas = [dict(p) for p in SERIE]
+    _, resumo = ud.blocos_analiticos(linhas, {}, {})
+    # a série de teste tem 10 pregões: só a janela de 21 seria curta demais
+    assert "faixa_max" in resumo and "faixa_min" in resumo
+
+
+def test_manchetes_entram_no_payload_quando_existem():
+    manchetes = {"2026-08-21": [{"h": "10:00", "t": "T", "v": "V", "u": "https://x"}]}
+    payload = ud.monta_payload([dict(p) for p in SERIE], {}, None, None, None, manchetes)
+    assert payload["NEWS"] == manchetes
+    assert "NEWS" not in ud.monta_payload([dict(p) for p in SERIE], {})

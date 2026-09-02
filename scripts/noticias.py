@@ -9,7 +9,7 @@ lado da variação do dia.
 Ele **não** afirma que a ação subiu ou caiu *por causa* de nenhuma delas. Essa
 atribuição exigiria um julgamento que nem a fonte nem esta rotina têm como
 fazer: correlação entre uma manchete e um movimento de preço no mesmo dia não
-establece causa, e uma rotina automática que escrevesse "a ação caiu porque X"
+estabelece causa, e uma rotina automática que escrevesse "a ação caiu porque X"
 estaria produzindo análise inventada com aparência de fato. O que se entrega é
 o contexto datado e a fonte primária a um clique; a leitura causal é do
 analista, que é quem tem o resto do quadro.

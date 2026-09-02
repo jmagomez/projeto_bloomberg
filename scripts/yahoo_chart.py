@@ -511,5 +511,7 @@ def busca_fechamentos(symbol: str, period1: int) -> dict[str, float]:
             continue
         linhas, _ = recupera_fechamento_do_meta(res, extrai_pregoes(res))
         if linhas:
-            return {linha["d"]: round(linha["c"], 2) for linha in linhas}
+            # 4 casas, não 2: o câmbio USD/BRL a 5,147 arredondado para 5,15
+            # já desloca o Brent em reais em 0,06%, e esse erro entra no beta.
+            return {linha["d"]: round(linha["c"], 4) for linha in linhas}
     return {}

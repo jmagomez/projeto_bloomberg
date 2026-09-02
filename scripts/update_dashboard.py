@@ -28,6 +28,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import analitica as an  # noqa: E402
+import noticias as nt  # noqa: E402
 from yahoo_chart import (  # noqa: E402
     DadosDesatualizadosError,
     ErroTransitorio,
@@ -37,6 +39,7 @@ from yahoo_chart import (  # noqa: E402
 
 BASE = Path(__file__).resolve().parents[1]
 OUT = BASE / "data.js"
+ARQUIVO_NOTICIAS = BASE / "noticias.json"
 PREFIXO = "window.PETR4 = "
 
 SYMBOL = "PETR4.SA"
@@ -45,6 +48,19 @@ SYMBOL = "PETR4.SA"
 SYMBOL_REF = "^BVSP"
 NOME_REF = "Ibovespa"
 PERIOD1 = 1262304000  # 2010-01-01
+
+# Séries auxiliares. Todas opcionais pelo mesmo motivo do índice: nenhuma delas
+# pode derrubar a publicação da cotação da PETR4, que é o dado principal.
+SYMBOL_BRENT = "BZ=F"  # Brent futuro, em dólar por barril
+SYMBOL_CAMBIO = "BRL=X"  # USD/BRL
+SYMBOL_ON = "PETR3.SA"  # ordinária, para o spread ON/PN
+SYMBOL_ADR = "PBR-A"  # ADR da preferencial
+
+# Cada ADR da Petrobras representa 2 ações. A rotina não confia nesta constante:
+# confere_razao_do_adr mede a razão implícita nos próprios preços e o painel só
+# sai se as duas baterem. Medianas anuais de 2010 a 2026 ficaram entre 1,988 e
+# 2,025 — mas um reagrupamento futuro passaria despercebido sem a conferência.
+ACOES_POR_ADR = 2
 
 # Quantos pregões diários acompanham o payload. ~2 anos de sessões: suficiente
 # para o candlestick diário e as médias móveis curtas sem inchar o data.js.
@@ -266,6 +282,32 @@ def alinha_referencia(fechamentos: dict[str, float], datas: list[str]) -> list[f
     return saida
 
 
+def amostra_semanal(datas: list[str], *series: list) -> tuple[list[str], list[list]]:
+    """Reduz séries longas a uma observação por semana (a última de cada uma).
+
+    As séries analíticas — retorno total, yield, volatilidade, correlação móvel
+    — cobrem 4.100 pregões desde 2010. Publicá-las em resolução diária dobraria
+    o ``data.js`` sem mudar nada do que se vê: num gráfico de 1.100 px, 4.100
+    pontos são 4 por pixel. Uma observação semanal é o mesmo desenho com um
+    sétimo do peso.
+
+    Amostrar (pegar a última observação da semana) não é o mesmo que suavizar:
+    nenhum valor é recalculado ou misturado com o vizinho. Cada ponto publicado
+    é um número que existiu de fato naquele pregão.
+    """
+    if not datas:
+        return [], [[] for _ in series]
+    indices = []
+    chave_anterior = None
+    for i, d in enumerate(datas):
+        chave = (date.fromisoformat(d).toordinal() - 1) // 7
+        if chave_anterior is not None and chave != chave_anterior:
+            indices.append(i - 1)
+        chave_anterior = chave
+    indices.append(len(datas) - 1)
+    return [datas[i] for i in indices], [[s[i] for i in indices] for s in series]
+
+
 def le_payload_atual(caminho: Path) -> dict | None:
     """Lê o data.js já publicado, se existir e for legível."""
     if not caminho.exists():
@@ -354,11 +396,139 @@ def confere_precos_possiveis(payload: dict) -> None:
                     )
 
 
+def blocos_analiticos(
+    linhas: list[dict], proventos: dict[str, float], aux: dict[str, dict[str, float]]
+) -> tuple[dict, dict]:
+    """Monta os blocos de análise setorial e de risco, e o que vai para os cartões.
+
+    Devolve ``(blocos, resumo)``. Cada bloco é opcional: se a série auxiliar de
+    que ele depende não veio, ele simplesmente não entra no payload e o painel
+    correspondente some do dashboard. Nenhuma ausência derruba a rotina.
+
+    Todas as séries longas saem em resolução semanal (ver ``amostra_semanal``).
+    """
+    blocos: dict = {}
+    resumo: dict = {}
+    fechamentos = {linha["d"]: linha["c"] for linha in linhas}
+    datas_diarias = [linha["d"] for linha in linhas]
+
+    # --- retorno total x preço, e yield TTM ao longo do tempo -------------
+    tr = an.indice_retorno_total(linhas, proventos)
+    y = an.yield_ttm(linhas, proventos)
+    d_tr, (preco, total) = amostra_semanal(tr["d"], tr["preco"], tr["total"])
+    d_y, (yy,) = amostra_semanal(y["d"], y["y"])
+    blocos["TR"] = {"d": d_tr, "preco": preco, "total": total, "yd": d_y, "y": yy}
+    if total and preco and preco[-1]:
+        # Quanto do retorno acumulado veio de distribuição e não de preço.
+        resumo["parcela_proventos_pct"] = (
+            round((total[-1] - preco[-1]) / (total[-1] - 100) * 100, 1) if total[-1] > 100 else None
+        )
+        resumo["tr_indice"] = total[-1]
+        resumo["preco_indice"] = preco[-1]
+    if yy:
+        resumo["div_yield_ttm_serie_ultimo"] = yy[-1]
+        ordenado = sorted(v for v in yy if v is not None)
+        resumo["div_yield_mediana_pct"] = ordenado[len(ordenado) // 2] if ordenado else None
+
+    # --- Brent em reais: o driver de receita ------------------------------
+    brent, cambio = aux.get("brent") or {}, aux.get("cambio") or {}
+    brent_brl = an.serie_em_reais(brent, cambio) if brent and cambio else {}
+    if brent_brl:
+        idx_datas, (p_idx, b_idx) = amostra_semanal(
+            datas_diarias,
+            an.indice_base_100(fechamentos, datas_diarias),
+            an.indice_base_100(brent_brl, datas_diarias),
+        )
+        movel = an.estatisticas_moveis(fechamentos, brent_brl)
+        d_mov, (corr, beta) = amostra_semanal(movel["d"], movel["corr"], movel["beta"])
+        blocos["BRENT"] = {
+            "d": idx_datas,
+            "p": p_idx,
+            "b": b_idx,
+            "md": d_mov,
+            "corr": corr,
+            "beta": beta,
+            "symbol": SYMBOL_BRENT,
+            "cambio": SYMBOL_CAMBIO,
+            "janela": an.JANELA_MOVEL,
+        }
+        ultimo_dia = max(set(brent) & set(cambio), default=None)
+        if ultimo_dia:
+            resumo["brent_usd"] = round(brent[ultimo_dia], 2)
+            resumo["brent_brl"] = round(brent_brl[ultimo_dia], 2)
+            resumo["usdbrl"] = round(cambio[ultimo_dia], 4)
+            resumo["brent_data"] = ultimo_dia
+        validos_corr = [c for c in movel["corr"] if c is not None]
+        validos_beta = [b for b in movel["beta"] if b is not None]
+        if validos_corr:
+            resumo["corr_brent"] = validos_corr[-1]
+        if validos_beta:
+            resumo["beta_brent"] = validos_beta[-1]
+
+    # --- ON/PN e paridade do ADR ------------------------------------------
+    on, adr = aux.get("on") or {}, aux.get("adr") or {}
+    razao_ok = bool(adr and cambio) and an.confere_razao_do_adr(
+        adr, cambio, fechamentos, ACOES_POR_ADR
+    )
+    if on or razao_ok:
+        d_par, (on_pn, premio) = amostra_semanal(
+            datas_diarias,
+            an.razao_entre_series(on, fechamentos, datas_diarias)
+            if on
+            else [None] * len(datas_diarias),
+            an.paridade_adr(adr, cambio, fechamentos, ACOES_POR_ADR, datas_diarias)
+            if razao_ok
+            else [None] * len(datas_diarias),
+        )
+        blocos["PARES"] = {
+            "d": d_par,
+            "onpn": on_pn if on else None,
+            "adr": premio if razao_ok else None,
+            "on_symbol": SYMBOL_ON,
+            "adr_symbol": SYMBOL_ADR,
+            "acoes_por_adr": ACOES_POR_ADR,
+        }
+        atuais_onpn = [v for v in on_pn if v is not None]
+        if atuais_onpn:
+            resumo["on_pn"] = atuais_onpn[-1]
+            ordenado = sorted(atuais_onpn)
+            resumo["on_pn_mediana"] = ordenado[len(ordenado) // 2]
+        atuais_adr = [v for v in premio if v is not None]
+        if atuais_adr:
+            resumo["adr_premio_pct"] = atuais_adr[-1]
+
+    # --- risco: volatilidade realizada, beta ao índice, faixa de 52 sem. ---
+    vol = an.volatilidade_realizada(linhas)
+    campos = [f"v{j}" for j in an.JANELAS_VOL]
+    d_vol, series_vol = amostra_semanal(vol["d"], *(vol[c] for c in campos))
+    risco: dict = {"d": d_vol, **dict(zip(campos, series_vol, strict=True))}
+    for campo in campos:
+        atuais = [v for v in vol[campo] if v is not None]
+        if atuais:
+            resumo[f"vol_{campo[1:]}d_pct"] = atuais[-1]
+
+    referencia = aux.get("ref") or {}
+    if referencia:
+        movel_ibov = an.estatisticas_moveis(fechamentos, referencia)
+        d_mi, (corr_i, beta_i) = amostra_semanal(
+            movel_ibov["d"], movel_ibov["corr"], movel_ibov["beta"]
+        )
+        risco.update({"md": d_mi, "corr_ref": corr_i, "beta_ref": beta_i, "ref_nome": NOME_REF})
+        validos = [b for b in movel_ibov["beta"] if b is not None]
+        if validos:
+            resumo["beta_ibov"] = validos[-1]
+    blocos["RISCO"] = risco
+    resumo.update(an.posicao_na_faixa(linhas))
+    return blocos, resumo
+
+
 def monta_payload(
     linhas: list[dict],
     proventos: dict[str, float],
     referencia: dict[str, float] | None = None,
     pendente: str | None = None,
+    auxiliares: dict[str, dict[str, float]] | None = None,
+    manchetes: dict | None = None,
 ) -> dict:
     for linha in linhas:
         linha["e"] = proventos.get(linha["d"], 0.0)
@@ -388,6 +558,14 @@ def monta_payload(
             "D": alinha_referencia(referencia, D["d"]),
             "W": alinha_referencia(referencia, W["d"]),
         }
+
+    aux = dict(auxiliares or {})
+    aux.setdefault("ref", referencia or {})
+    blocos, resumo = blocos_analiticos(linhas, proventos, aux)
+    payload.update(blocos)
+    stats.update(resumo)
+    if manchetes:
+        payload["NEWS"] = manchetes
     return payload
 
 
@@ -424,7 +602,37 @@ def main() -> int:
     if not referencia:
         print(f"[update] aviso: sem dados de {SYMBOL_REF}; painel de comparação sai do data.js")
 
-    payload = monta_payload(linhas, proventos, referencia, pendente)
+    # Séries auxiliares dos painéis setoriais. Nenhuma é obrigatória: o painel
+    # que depender de uma que falhou some do data.js, e a cotação da PETR4 —
+    # que é o dado principal — publica do mesmo jeito.
+    auxiliares: dict[str, dict[str, float]] = {"ref": referencia}
+    for chave, simbolo in (
+        ("brent", SYMBOL_BRENT),
+        ("cambio", SYMBOL_CAMBIO),
+        ("on", SYMBOL_ON),
+        ("adr", SYMBOL_ADR),
+    ):
+        auxiliares[chave] = busca_fechamentos(simbolo, PERIOD1)
+        if not auxiliares[chave]:
+            print(
+                f"[update] aviso: sem dados de {simbolo}; o painel que depende dele sai do data.js"
+            )
+
+    # Manchetes: acumuladas em arquivo porque o endpoint de busca só devolve as
+    # recentes. Falha de rede aqui não impede nada — o acervo já gravado segue
+    # sendo publicado.
+    acervo = nt.le_arquivo(ARQUIVO_NOTICIAS)
+    antes = len(acervo)
+    try:
+        acervo = nt.mescla(acervo, nt.busca_manchetes())
+    except Exception as exc:  # noqa: BLE001 — notícia nunca derruba a cotação
+        print(f"[update] aviso: coleta de manchetes falhou ({exc}); usando o acervo gravado")
+    if acervo:
+        nt.grava_arquivo(ARQUIVO_NOTICIAS, acervo)
+    print(f"[update] manchetes: {antes} no acervo, {len(acervo)} depois da coleta")
+
+    manchetes = nt.por_pregao(acervo, [linha["d"] for linha in linhas])
+    payload = monta_payload(linhas, proventos, referencia, pendente, auxiliares, manchetes)
 
     try:
         confere_precos_possiveis(payload)

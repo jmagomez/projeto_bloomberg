@@ -58,6 +58,40 @@
   details.help dt { color:var(--text); font-size:.83rem; font-weight:600; }
   details.help dd { color:var(--muted); font-size:.8rem; margin-left:0; }
 
+  /* faixa de indicadores-chave: o que um analista confere antes de tudo */
+  .kpi { position:sticky; top:0; z-index:20; display:flex; gap:0; flex-wrap:wrap;
+         background:rgba(13,17,23,.94); backdrop-filter:blur(8px);
+         border:1px solid var(--border); border-radius:10px; margin-bottom:14px; overflow:hidden; }
+  .kpi div { flex:1 1 130px; padding:9px 14px; border-right:1px solid var(--border); min-width:0; }
+  .kpi div:last-child { border-right:0; }
+  .kpi dt { color:var(--muted); font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kpi dd { font-size:1.02rem; font-weight:600; margin:2px 0 0; font-variant-numeric:tabular-nums;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kpi dd small { font-size:.68rem; font-weight:400; color:var(--muted); margin-left:4px; white-space:nowrap; }
+
+  /* navegação por seções */
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid var(--border); }
+  .tabs button { background:transparent; border:0; border-bottom:2px solid transparent; color:var(--muted);
+                 padding:8px 14px; font-size:.86rem; cursor:pointer; font-family:inherit; transition:.15s; }
+  .tabs button:hover { color:var(--text); }
+  .tabs button[aria-selected="true"] { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+  [data-sec][hidden] { display:none !important; }
+
+  /* manchetes do pregão */
+  .sessao { border-bottom:1px solid var(--border); padding:12px 0; }
+  .sessao:last-child { border-bottom:0; }
+  .sessao-cab { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+  .sessao-cab b { font-size:.92rem; font-variant-numeric:tabular-nums; }
+  .sessao-cab .var { font-weight:600; font-variant-numeric:tabular-nums; }
+  .sessao ul { list-style:none; display:grid; gap:5px; }
+  .sessao li { font-size:.82rem; line-height:1.4; display:flex; gap:8px; }
+  .sessao li time { color:var(--muted); font-variant-numeric:tabular-nums; flex:0 0 auto; }
+  .sessao li a { color:var(--text); text-decoration:none; border-bottom:1px solid var(--border); }
+  .sessao li a:hover { color:var(--accent); border-bottom-color:var(--accent); }
+  .sessao li em { color:var(--muted); font-style:normal; font-size:.75rem; }
+  .nota { color:var(--muted); font-size:.76rem; line-height:1.5; margin-top:10px;
+          border-left:2px solid var(--border); padding-left:10px; }
+
   .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
   .empty-msg { color:var(--muted); font-size:.82rem; padding:24px 0; text-align:center; }
 
@@ -93,6 +127,8 @@
     .chart-box.h-md { height:280px; }
     .chart-box.h-sm { height:200px; }
     .chart-box.h-xs { height:90px; }
+    .kpi div { flex:1 1 50%; }
+    .tabs button { padding:8px 10px; font-size:.78rem; }
   }
   @media (prefers-reduced-motion: reduce) {
     * { transition:none !important; }
@@ -108,9 +144,18 @@
   </header>
   <div class="subhead" id="freshTxt"></div>
 
+  <dl class="kpi" id="kpiBar"></dl>
+
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-tab="preco" aria-selected="true">Preço &amp; técnico</button>
+    <button role="tab" data-tab="drivers" aria-selected="false">Drivers setoriais</button>
+    <button role="tab" data-tab="retorno" aria-selected="false">Retorno &amp; proventos</button>
+    <button role="tab" data-tab="risco" aria-selected="false">Risco</button>
+  </nav>
+
   <div class="stale" id="staleBox"></div>
 
-  <div class="cards">
+  <div class="cards" data-sec="preco">
     <div class="card highlight"><div class="label">Último pregão</div><div class="value" id="lastClose"></div><div class="sub" id="lastDate"></div></div>
     <div class="card highlight"><div class="label">Variação no dia <span class="info" title="Fechamento do último pregão contra o fechamento do pregão anterior.">ⓘ</span></div><div class="value" id="dayChange">—</div><div class="sub" id="dayChangeSub"></div></div>
     <div class="card clickable" id="retCard"><div class="label">Retorno no período <span class="info" id="retInfo" title="Retorno total anualizado (% a.a.), somando a valorização do preço com os dividendos e JCP pagos por ação. Toque no card para ver o retorno acumulado no período inteiro.">ⓘ</span></div><div class="value" id="retVal"></div><div class="sub" id="retSub"></div></div>
@@ -127,7 +172,7 @@
     <div class="card"><div class="label">Pior dia</div><div class="value down" id="worstVal"></div><div class="sub" id="worstDate"></div></div>
   </div>
 
-  <div class="panel" id="dailyPanel">
+  <div class="panel" data-sec="preco" id="dailyPanel">
     <h2>Candlestick diário — MM9 e MM21 <span class="info" title="Um candle por pregão. As médias móveis são de 9 e 21 pregões.">ⓘ</span></h2>
     <div class="legend">
       <span><span class="dot" style="background:#3fb950"></span>alta (corpo cheio)</span>
@@ -148,7 +193,7 @@
     <div class="empty-msg" id="dailyEmpty" style="display:none">Este data.js ainda não traz a série diária — ela é preenchida na próxima execução da rotina.</div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-sec="preco">
     <h2>Candlestick semanal — últimas 104 semanas · suporte, resistência e tendência</h2>
     <div class="legend">
       <span><span class="dot" style="background:#3fb950"></span>alta (corpo cheio)</span>
@@ -161,7 +206,7 @@
     <div class="chart-box h-lg"><canvas id="candleChart"></canvas></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-sec="preco">
     <h2>Histórico completo — fechamento, MM20, MM52 semanais e proventos <span class="info" title="Os triângulos dourados marcam semanas com pagamento de dividendo ou JCP; passe o mouse para ver o valor por ação.">ⓘ</span></h2>
     <div class="range-btns" id="rangeBtns">
       <button data-w="52">1A</button>
@@ -173,23 +218,68 @@
     <div class="chart-box h-md"><canvas id="priceChart"></canvas></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-sec="retorno" id="trPanel">
+    <h2>Retorno total × retorno de preço — base 100 desde 2010 <span class="info" title="O retorno total reinveste cada provento no fechamento da própria data-ex. A distância entre as curvas é a contribuição acumulada da distribuição.">ⓘ</span></h2>
+    <div class="legend">
+      <span><span class="dot" style="background:#58a6ff"></span>só preço</span>
+      <span><span class="dot" style="background:#3fb950"></span>retorno total (proventos reinvestidos)</span>
+    </div>
+    <div class="chart-box h-md"><canvas id="trChart"></canvas></div>
+    <p class="nota" id="trNota"></p>
+    <div class="empty-msg" id="trEmpty" style="display:none">Este data.js ainda não traz o índice de retorno total — ele é preenchido na próxima execução da rotina.</div>
+  </div>
+
+  <div class="panel" data-sec="retorno" id="yieldPanel">
+    <h2>Dividend yield dos últimos 12 meses, pregão a pregão <span class="info" title="Proventos com data-ex nos 365 dias anteriores, divididos pelo fechamento daquele pregão. É o yield que um comprador naquele dia teria olhado — não o yield de hoje projetado para trás.">ⓘ</span></h2>
+    <div class="chart-box h-sm"><canvas id="yieldChart"></canvas></div>
+    <p class="nota" id="yieldNota"></p>
+  </div>
+
+  <div class="panel" data-sec="retorno">
     <h2>Proventos por ano — dividendos + JCP (R$/ação) <span class="info" title="Soma anual de dividendos e juros sobre capital próprio pagos por ação, conforme reportado pelo Yahoo Finance.">ⓘ</span></h2>
     <div class="chart-box h-sm"><canvas id="divChart"></canvas></div>
     <div class="empty-msg" id="divEmpty" style="display:none">Ainda não há dados de proventos neste data.js — serão preenchidos na próxima atualização automática.</div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-sec="preco">
     <h2>Índice de Força Relativa — RSI 14 semanal</h2>
     <div class="chart-box h-sm"><canvas id="rsiChart"></canvas></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-sec="preco">
     <h2>Volume negociado (milhões, soma semanal)</h2>
     <div class="chart-box h-sm"><canvas id="volChart"></canvas></div>
   </div>
 
-  <div class="panel" id="cmpPanel">
+  <div class="panel" data-sec="drivers" id="brentPanel">
+    <h2>PETR4 × Brent em reais — base 100 <span class="info" title="Brent (BZ=F) convertido a real pelo câmbio USD/BRL do mesmo dia. É a variável de receita que move a companhia: o petróleo é vendido em dólar, e o resultado é reportado em real.">ⓘ</span></h2>
+    <div class="legend">
+      <span><span class="dot" style="background:#58a6ff"></span>PETR4</span>
+      <span><span class="dot" style="background:#d29922"></span>Brent em R$ (BZ=F × USD/BRL)</span>
+    </div>
+    <div class="chart-box h-md"><canvas id="brentChart"></canvas></div>
+    <h2 style="margin-top:18px">Correlação e beta móveis contra o Brent em reais <span class="info" title="Janela de 60 pregões. Correlação diz o quanto os dois andam juntos; beta diz o tamanho do passo — quanto a PETR4 anda, em média, para cada 1% do Brent em reais.">ⓘ</span></h2>
+    <div class="legend">
+      <span><span class="dot" style="background:#58a6ff"></span>correlação (60 pregões)</span>
+      <span><span class="dot" style="background:#ffdf5d"></span>beta (60 pregões)</span>
+    </div>
+    <div class="chart-box h-sm"><canvas id="brentMovChart"></canvas></div>
+    <p class="nota">Os pares usados na correlação e no beta são só as datas em que <strong>as duas</strong> séries negociaram. Feriado de um lado só não vira retorno zero — viraria correlação artificialmente baixa.</p>
+    <div class="empty-msg" id="brentEmpty" style="display:none">Este data.js não traz a série do Brent ou do câmbio — a rotina segue sem elas quando a fonte falha, e o painel volta na próxima coleta bem-sucedida.</div>
+  </div>
+
+  <div class="panel" data-sec="drivers" id="paresPanel">
+    <h2>PETR3/PETR4 e paridade do ADR <span class="info" title="Razão entre a ordinária e a preferencial, e prêmio do ADR PBR-A sobre o preço local convertido a real.">ⓘ</span></h2>
+    <div class="legend">
+      <span><span class="dot" style="background:#58a6ff"></span>PETR3 ÷ PETR4 (eixo à esquerda)</span>
+      <span><span class="dot" style="background:#ff9d5c"></span>prêmio do ADR, % (eixo à direita)</span>
+    </div>
+    <div class="chart-box h-md"><canvas id="paresChart"></canvas></div>
+    <p class="nota">O ADR negocia em Nova York cerca de duas horas depois do fechamento da B3, e o câmbio de referência é de outro horário ainda. Parte do que aparece como prêmio é notícia que chegou depois que a B3 fechou, não arbitragem aberta — o sinal está no desvio que <strong>persiste</strong> por dias, não no número de um pregão isolado.</p>
+    <div class="empty-msg" id="paresEmpty" style="display:none">Este data.js não traz as séries da ordinária nem do ADR.</div>
+  </div>
+
+  <div class="panel" data-sec="drivers" id="cmpPanel">
     <h2>PETR4 × <span id="cmpNome">Ibovespa</span> — base 100 <span class="info" title="As duas séries partem de 100 no início da janela escolhida, então a distância entre as linhas é a diferença de desempenho no período. Não inclui proventos.">ⓘ</span></h2>
     <div class="range-btns" id="cmpRangeBtns">
       <button data-w="52">1A</button>
@@ -202,12 +292,33 @@
     <div class="empty-msg" id="cmpEmpty" style="display:none">Este data.js não traz a série do índice de referência — a rotina segue sem ela quando a fonte falha, e o painel volta na próxima coleta bem-sucedida.</div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-sec="risco">
     <h2>Drawdown — queda desde o topo histórico <span class="info" title="Para cada semana, quanto o fechamento estava abaixo do maior fechamento já atingido até ali. Zero significa topo histórico novo.">ⓘ</span></h2>
     <div class="chart-box h-md"><canvas id="ddChart"></canvas></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-sec="risco" id="volPanel">
+    <h2>Volatilidade realizada por prazo (% a.a.) <span class="info" title="Desvio-padrão dos retornos logarítmicos na janela, anualizado por raiz de 252. Ver as três janelas juntas dá a estrutura a termo do risco.">ⓘ</span></h2>
+    <div class="legend">
+      <span><span class="dot" style="background:#a5d5ff"></span>21 pregões</span>
+      <span><span class="dot" style="background:#58a6ff"></span>63 pregões</span>
+      <span><span class="dot" style="background:#1f6feb"></span>252 pregões</span>
+    </div>
+    <div class="chart-box h-md"><canvas id="volTermoChart"></canvas></div>
+    <p class="nota">A janela de 21 reagindo enquanto a de 252 ainda não se mexeu é o retrato de um choque recente; o cruzamento das duas costuma marcar a virada de regime.</p>
+  </div>
+
+  <div class="panel" data-sec="risco" id="betaPanel">
+    <h2>Beta e correlação móveis contra o <span id="betaRefNome">Ibovespa</span> <span class="info" title="Janela de 60 pregões, sobre retornos logarítmicos, usando apenas as datas em que os dois negociaram.">ⓘ</span></h2>
+    <div class="legend">
+      <span><span class="dot" style="background:#ffdf5d"></span>beta (60 pregões)</span>
+      <span><span class="dot" style="background:#58a6ff"></span>correlação (60 pregões)</span>
+    </div>
+    <div class="chart-box h-sm"><canvas id="betaRefChart"></canvas></div>
+    <div class="empty-msg" id="betaEmpty" style="display:none">Este data.js não traz a série do índice de referência.</div>
+  </div>
+
+  <div class="panel" data-sec="retorno">
     <h2>Retornos mensais (%) <span class="info" title="Variação do fechamento de um mês para o do mês seguinte. A coluna Ano compõe os meses do próprio ano, então não é a soma deles.">ⓘ</span></h2>
     <div class="heat-wrap"><table class="heat" id="heatTable"><caption class="sr-only">Retornos mensais da PETR4 por ano</caption></table></div>
     <div class="heat-legenda">
@@ -219,6 +330,13 @@
       <span style="margin-left:10px">a intensidade acompanha o tamanho da variação; o número está sempre escrito na célula</span>
     </div>
     <div class="empty-msg" id="heatEmpty" style="display:none">Este data.js ainda não traz a série mensal — ela é preenchida na próxima execução da rotina.</div>
+  </div>
+
+  <div class="panel" data-sec="preco" id="newsPanel">
+    <h2>Pregões recentes e o noticiário do dia <span class="info" title="Manchetes publicadas na data de cada pregão, com veículo, horário e link para a fonte.">ⓘ</span></h2>
+    <p class="nota" style="margin:0 0 14px"><strong>Isto é contexto datado, não atribuição de causa.</strong> Cada manchete a seguir foi publicada na data do pregão ao lado do qual aparece; o dashboard não afirma que a ação subiu ou caiu por causa dela. Coincidência de data não estabelece causa, e uma rotina automática não tem como fazer esse julgamento — quem tem o resto do quadro é você. O acervo é montado uma rodada por vez, então pregões mais antigos podem aparecer sem manchete.</p>
+    <div id="newsLista"></div>
+    <div class="empty-msg" id="newsEmpty" style="display:none">Ainda não há manchetes guardadas para estes pregões — o acervo começa a se formar na próxima execução da rotina.</div>
   </div>
 
   <details class="help">
@@ -269,6 +387,7 @@ const NUM2 = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumF
 const NUM1 = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmt = n => NUM2.format(Number(n));
 const fmt1 = n => NUM1.format(Number(n));
+const NUM3 = new Intl.NumberFormat('pt-BR', {minimumFractionDigits:3, maximumFractionDigits:3});
 const fmtSigned = n => (Number(n) >= 0 ? '+' : '') + NUM2.format(Number(n));
 const el = id => document.getElementById(id);
 
@@ -786,7 +905,248 @@ if (!M || !M.d || !M.d.length) {
     .forEach(([v,id]) => { el(id).style.background = corRetorno(v); });
 }
 
+
+// ===========================================================================
+// Faixa de indicadores-chave, navegação por seções e painéis analíticos.
+// ===========================================================================
+
+// ---- faixa fixa no topo ---------------------------------------------------
+// A ordem é a de quem abre o dashboard com uma pergunta na cabeça: onde está o
+// preço, o que ele fez hoje, quanto paga, o quanto depende do petróleo, o
+// quanto oscila e onde está dentro do próprio ano.
+(function montaKpi(){
+  const sinal = v => v === null || v === undefined ? '' : (v >= 0 ? 'up' : 'down');
+  const ou = (v, txt) => (v === null || v === undefined) ? '—' : txt;
+  const itens = [
+    ['Fechamento', `R$ ${fmt(S.last_close)}`, S.last_date, ''],
+    ['Variação no dia', ou(S.day_change_pct, fmtSigned(S.day_change_pct) + '%'), 'ant. R$ ' + fmt(S.prev_close), sinal(S.day_change_pct)],
+    ['Yield 12 meses', ou(S.div_yield_ttm_pct, fmt(S.div_yield_ttm_pct) + '%'),
+      S.div_yield_mediana_pct != null ? `mediana ${fmt(S.div_yield_mediana_pct)}%` : 'dividendos + JCP', 'gold'],
+    ['Beta ao Brent (R$)', ou(S.beta_brent, fmt(S.beta_brent)),
+      S.corr_brent != null ? `correlação ${fmt(S.corr_brent)}` : '60 pregões', ''],
+    ['Vol. 21 pregões', ou(S.vol_21d_pct, fmt1(S.vol_21d_pct) + '%'),
+      S.vol_252d_pct != null ? `252 pregões ${fmt1(S.vol_252d_pct)}%` : 'anualizada', ''],
+    ['Faixa 52 semanas', ou(S.faixa_pct, fmt1(S.faixa_pct) + '%'),
+      (S.faixa_min != null ? `R$ ${fmt(S.faixa_min)}–${fmt(S.faixa_max)}` : ''), ''],
+  ];
+  el('kpiBar').innerHTML = itens.map(([rot, val, sub, cls]) =>
+    `<div><dt>${rot}</dt><dd class="${cls}">${val}<small>${sub || ''}</small></dd></div>`).join('');
 })();
+
+// ---- navegação por seções -------------------------------------------------
+// Os painéis ficam todos no DOM e são escondidos por atributo, não removidos:
+// o Ctrl+F do navegador continua achando o conteúdo das outras seções.
+//
+// Esta função é declarada aqui mas só é **chamada no fim do arquivo**, depois
+// que todo gráfico já foi construído. O Chart.js mede o canvas no momento da
+// criação, e canvas dentro de container escondido mede zero: o gráfico nascia
+// com escala errada e desenhava a série inteira comprimida em um terço da
+// largura. Construir tudo com os painéis visíveis e só então esconder resolve
+// na raiz — o resize() abaixo passa a ser só o ajuste fino de quando a janela
+// muda de tamanho com uma aba fechada.
+function montaAbas(){
+  const botoes = [...document.querySelectorAll('#tabs button')];
+  const painel = sec => [...document.querySelectorAll(`[data-sec="${sec}"]`)];
+  function mostra(sec){
+    botoes.forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === sec)));
+    document.querySelectorAll('[data-sec]').forEach(n => { n.hidden = n.dataset.sec !== sec; });
+    // O Chart.js mede o canvas na criação; um canvas escondido nasce com 0 px.
+    // Ao revelar a seção, um resize põe cada gráfico no tamanho certo.
+    painel(sec).forEach(n => n.querySelectorAll('canvas').forEach(c => {
+      const ch = Chart.getChart(c); if (ch) ch.resize();
+    }));
+    if (location.hash.slice(1) !== sec) history.replaceState(null, '', '#' + sec);
+  }
+  botoes.forEach(b => b.addEventListener('click', () => mostra(b.dataset.tab)));
+  const inicial = botoes.some(b => b.dataset.tab === location.hash.slice(1))
+    ? location.hash.slice(1) : 'preco';
+  mostra(inicial);
+}
+
+// ---- helpers dos gráficos analíticos --------------------------------------
+const OPC_LINHA = {
+  ...RESP,
+  interaction:{ mode:'index', intersect:false },
+  elements:{ point:{ radius:0, hitRadius:8 } },
+};
+const linha = (label, dados, cor, extra={}) => ({
+  label, data:dados, borderColor:cor, borderWidth:1.6, tension:.2, spanGaps:false, ...extra
+});
+const eixoX = { ticks:{ maxTicksLimit:XT_FULL } };
+
+// ---- PETR4 x Brent em reais ----------------------------------------------
+const BRENT = P.BRENT || null;
+if (!BRENT || !BRENT.d || !BRENT.d.length) {
+  el('brentPanel').querySelectorAll('.chart-box, .legend, h2 + .legend, .nota').forEach(n => n.style.display = 'none');
+  el('brentEmpty').style.display = 'block';
+} else {
+  new Chart(el('brentChart'), {
+    type:'line',
+    data:{ labels:BRENT.d, datasets:[
+      linha('PETR4', BRENT.p, '#58a6ff'),
+      linha('Brent em R$', BRENT.b, '#d29922', { borderDash:[6,4] })
+    ]},
+    options:{ ...OPC_LINHA,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${fmt(c.raw)}` } } },
+      scales:{ x:eixoX, y:{ beginAtZero:false, ticks:{ callback:v=>fmt1(v) } } } }
+  });
+  new Chart(el('brentMovChart'), {
+    type:'line',
+    data:{ labels:BRENT.md, datasets:[
+      linha(`correlação (${BRENT.janela} pregões)`, BRENT.corr, '#58a6ff'),
+      linha(`beta (${BRENT.janela} pregões)`, BRENT.beta, '#ffdf5d', { yAxisID:'y2' })
+    ]},
+    options:{ ...OPC_LINHA,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${fmt(c.raw)}` } } },
+      scales:{ x:eixoX,
+        y:{ position:'left', min:-1, max:1, ticks:{ callback:v=>fmt(v) },
+            title:{ display:true, text:'correlação', color:'#58a6ff' } },
+        y2:{ position:'right', grid:{ drawOnChartArea:false },
+             ticks:{ callback:v=>fmt(v) }, title:{ display:true, text:'beta', color:'#ffdf5d' } } } }
+  });
+}
+
+// ---- ON/PN e paridade do ADR ---------------------------------------------
+const PARES = P.PARES || null;
+if (!PARES || !PARES.d || !PARES.d.length || (!PARES.onpn && !PARES.adr)) {
+  el('paresPanel').querySelectorAll('.chart-box, .legend, .nota').forEach(n => n.style.display = 'none');
+  el('paresEmpty').style.display = 'block';
+} else {
+  const conjuntos = [];
+  if (PARES.onpn) conjuntos.push(linha('PETR3 ÷ PETR4', PARES.onpn, '#58a6ff'));
+  if (PARES.adr) conjuntos.push(linha('prêmio do ADR (%)', PARES.adr, '#ff9d5c', { yAxisID:'y2' }));
+  new Chart(el('paresChart'), {
+    type:'line',
+    data:{ labels:PARES.d, datasets:conjuntos },
+    options:{ ...OPC_LINHA,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+        label:c => c.dataset.yAxisID === 'y2' ? `${c.dataset.label}: ${fmtSigned(c.raw)}%`
+                                              : `${c.dataset.label}: ${NUM3.format(c.raw)}×` } } },
+      scales:{ x:eixoX,
+        y:{ position:'left', beginAtZero:false, ticks:{ callback:v=>NUM3.format(v)+'×' },
+            title:{ display:true, text:'ON ÷ PN', color:'#58a6ff' } },
+        y2:{ position:'right', grid:{ drawOnChartArea:false }, ticks:{ callback:v=>fmtSigned(v)+'%' },
+             title:{ display:true, text:'prêmio do ADR', color:'#ff9d5c' } } } }
+  });
+}
+
+// ---- retorno total x preço, e yield TTM -----------------------------------
+const TR = P.TR || null;
+if (!TR || !TR.d || !TR.d.length) {
+  el('trPanel').querySelectorAll('.chart-box, .legend, .nota').forEach(n => n.style.display = 'none');
+  el('trEmpty').style.display = 'block';
+  el('yieldPanel').style.display = 'none';
+} else {
+  new Chart(el('trChart'), {
+    type:'line',
+    data:{ labels:TR.d, datasets:[
+      linha('só preço', TR.preco, '#58a6ff'),
+      linha('retorno total', TR.total, '#3fb950', { fill:'-1', backgroundColor:'rgba(63,185,80,.10)' })
+    ]},
+    options:{ ...OPC_LINHA,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${fmt(c.raw)}` } } },
+      scales:{ x:eixoX, y:{ beginAtZero:false, ticks:{ callback:v=>fmt1(v) } } } }
+  });
+  if (S.parcela_proventos_pct != null) {
+    el('trNota').textContent =
+      `Base 100 no primeiro pregão da série. O índice de preço chegou a ${fmt(S.preco_indice)} e o de `
+      + `retorno total a ${fmt(S.tr_indice)}: ${fmt1(S.parcela_proventos_pct)}% de tudo o que foi ganho `
+      + `veio de provento reinvestido, não de valorização. Os proventos são reinvestidos no fechamento `
+      + `da própria data-ex, e não há desconto de imposto na conta.`;
+  } else {
+    el('trNota').style.display = 'none';
+  }
+  if (TR.yd && TR.yd.length) {
+    new Chart(el('yieldChart'), {
+      type:'line',
+      data:{ labels:TR.yd, datasets:[ linha('yield 12 meses', TR.y, '#d29922',
+        { fill:true, backgroundColor:'rgba(210,153,34,.14)' }) ]},
+      options:{ ...OPC_LINHA,
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => `yield 12 meses: ${fmt(c.raw)}%` } } },
+        scales:{ x:eixoX, y:{ beginAtZero:true, ticks:{ callback:v=>fmt1(v)+'%' } } } }
+    });
+    el('yieldNota').textContent =
+      `O primeiro ano da série fica de fora: sem 12 meses de proventos para somar, o número começaria `
+      + `artificialmente baixo. Mediana do período: ${fmt(S.div_yield_mediana_pct)}%.`;
+  } else {
+    el('yieldPanel').style.display = 'none';
+  }
+}
+
+// ---- risco: estrutura a termo da volatilidade e beta ao índice ------------
+const RISCO = P.RISCO || null;
+if (RISCO && RISCO.d && RISCO.d.length) {
+  new Chart(el('volTermoChart'), {
+    type:'line',
+    data:{ labels:RISCO.d, datasets:[
+      linha('21 pregões', RISCO.v21, '#a5d5ff', { borderWidth:1.3 }),
+      linha('63 pregões', RISCO.v63, '#58a6ff'),
+      linha('252 pregões', RISCO.v252, '#1f6feb', { borderWidth:1.9 })
+    ]},
+    options:{ ...OPC_LINHA,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${fmt1(c.raw)}% a.a.` } } },
+      scales:{ x:eixoX, y:{ beginAtZero:true, ticks:{ callback:v=>fmt1(v)+'%' } } } }
+  });
+} else {
+  el('volPanel').style.display = 'none';
+}
+if (RISCO && RISCO.md && RISCO.md.length) {
+  el('betaRefNome').textContent = RISCO.ref_nome || 'índice';
+  new Chart(el('betaRefChart'), {
+    type:'line',
+    data:{ labels:RISCO.md, datasets:[
+      linha('beta', RISCO.beta_ref, '#ffdf5d'),
+      linha('correlação', RISCO.corr_ref, '#58a6ff', { yAxisID:'y2' })
+    ]},
+    options:{ ...OPC_LINHA,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${fmt(c.raw)}` } } },
+      scales:{ x:eixoX,
+        y:{ position:'left', beginAtZero:false, ticks:{ callback:v=>fmt(v) },
+            title:{ display:true, text:'beta', color:'#ffdf5d' } },
+        y2:{ position:'right', min:-1, max:1, grid:{ drawOnChartArea:false }, ticks:{ callback:v=>fmt(v) },
+             title:{ display:true, text:'correlação', color:'#58a6ff' } } } }
+  });
+} else {
+  el('betaPanel').querySelectorAll('.chart-box, .legend').forEach(n => n.style.display = 'none');
+  el('betaEmpty').style.display = 'block';
+}
+
+// ---- pregões recentes e o noticiário do dia -------------------------------
+// O que se publica aqui é manchete real, datada e atribuída, ao lado da
+// variação daquele pregão. A leitura causal fica com quem lê: o dashboard não
+// tem como estabelecer que um movimento de preço veio de uma notícia, e fingir
+// que tem seria inventar análise com cara de fato.
+(function montaNoticias(){
+  const NEWS = P.NEWS || null;
+  const caixa = el('newsLista');
+  if (!D || !D.d || !D.d.length) { el('newsPanel').style.display = 'none'; return; }
+  const n = Math.min(12, D.d.length);
+  const blocos = [];
+  for (let k = D.d.length - n; k < D.d.length; k++) {
+    const dia = D.d[k];
+    const varDia = k > 0 ? (D.c[k] / D.c[k-1] - 1) * 100 : null;
+    const itens = (NEWS && NEWS[dia]) || [];
+    const linhasHtml = itens.length
+      ? '<ul>' + itens.map(i =>
+          `<li><time>${i.h}</time><span><a href="${i.u}" target="_blank" rel="noopener noreferrer">${i.t}</a> <em>· ${i.v}</em></span></li>`).join('') + '</ul>'
+      : '<p class="empty-msg" style="padding:2px 0;text-align:left">sem manchete guardada para este pregão</p>';
+    blocos.push(
+      `<div class="sessao"><div class="sessao-cab">`
+      + `<b>${dia}</b>`
+      + `<span class="var ${varDia >= 0 ? 'up' : 'down'}">${varDia === null ? '' : fmtSigned(varDia) + '%'}</span>`
+      + `<span style="color:var(--muted);font-size:.78rem">fech. R$ ${fmt(D.c[k])} · vol. ${fmt1(D.v[k])} M</span>`
+      + `</div>${linhasHtml}</div>`);
+  }
+  caixa.innerHTML = blocos.reverse().join('');
+  if (!NEWS || !Object.keys(NEWS).length) el('newsEmpty').style.display = 'block';
+})();
+
+// Por último de tudo: agora que cada gráfico já foi medido e desenhado com o
+// painel visível, as abas podem esconder o que não é da seção ativa.
+montaAbas();
+
+})();
+
 </script>
 </body>
 </html>

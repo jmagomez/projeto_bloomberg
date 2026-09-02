@@ -10,7 +10,9 @@ Pipeline de dados que coleta cotações diárias de uma ação da B3 (PETR4), tr
 projeto_bloomberg/
 ├── scripts/
 │   ├── yahoo_chart.py        # cliente do Yahoo Finance + validação de atualidade
-│   ├── update_dashboard.py   # gera data.js (stats, drawdown e séries diária, semanal, mensal, proventos e Ibovespa)
+│   ├── analitica.py          # cálculos financeiros puros (beta, correlação, retorno total, vol)
+│   ├── noticias.py           # coleta e acervo de manchetes datadas
+│   ├── update_dashboard.py   # gera data.js (stats, drawdown e séries diária, semanal, mensal, proventos, Brent, ON/PN, ADR, risco e Ibovespa)
 │   ├── emit_summary.py       # resumo do último pregão para o e-mail da rotina
 │   ├── extract_petr4.py      # (ETL) baixa cotações da Alpha Vantage -> data/raw/*.json
 │   ├── transform_petr4.py    # (ETL) limpa e padroniza -> data/silver/*.csv
@@ -23,6 +25,7 @@ projeto_bloomberg/
 │   ├── silver/  # dados tratados (CSV) — gerado, fora do controle de versão
 │   └── gold/    # banco de dados (SQLite) — gerado, fora do controle de versão
 ├── data.js      # payload do dashboard, gerado pela rotina
+├── noticias.json # acervo de manchetes, acumulado uma rodada por vez
 ├── index.html   # dashboard interativo (GitHub Pages)
 └── requirements*.txt
 ```
@@ -72,6 +75,36 @@ publicado.
 
 Nenhum calendário de feriados é necessário: `regularMarketTime` já responde
 "qual foi o último pregão" mesmo em feriados e emendas.
+
+### O terceiro incidente: a barra zerada (31/08/2026)
+
+O Yahoo entregou a barra do pregão com `open`, `high`, `low` e `volume` iguais a
+**`0`** — não `null` — e o fechamento correto. A peneira de então só testava
+`None`, os zeros passaram inteiros, e o `data.js` publicou abertura, máxima,
+mínima e volume zerados. Pior: como zero passou a ser o menor valor da série
+desde 2010, o cartão "Mínima" do dashboard foi ao ar exibindo **R$ 0,00**.
+
+Três travas, em camadas independentes:
+
+1. `preco_possivel()` só aceita número finito e maior que zero. `barra_coerente()`
+   recusa máxima abaixo da mínima. A barra que falhar em qualquer um dos dois é
+   descartada inteira.
+2. A barra descartada **não é reinventada**. O `meta` traz
+   `regularMarketDayHigh/Low/Volume` mas **não** traz a abertura — não há de
+   onde tirar esse campo sem inventá-lo. A série fica sem aquele pregão, a
+   pendência é sinalizada, e a repescagem da manhã pega a barra consolidada.
+3. `confere_precos_possiveis()` reexamina o **payload pronto** e recusa qualquer
+   preço ≤ 0 em `stats`, `D` ou `W`. Por olhar o resultado e não o caminho, essa
+   trava vale também para código que venha a ser acrescentado depois.
+
+Uma nota sobre a primeira versão dessa correção, que também exigia abertura e
+fechamento dentro da faixa `[low, high]`: rodada contra a série inteira, ela
+reprovava **2014-04-02** — pregão real, 66 M de volume, em que o Yahoo publica
+`close` 15,56 contra `low` 15,70. Defeito antigo do histórico da fonte, não
+barra suja. A trava de regressão barrou a publicação antes que o buraco entrasse
+no `data.js`, e a checagem foi afrouxada para só o que é absurdo em qualquer
+leitura. Inconsistência leve agora rende `::warning::` no log, sem remover nem
+corrigir nada.
 
 ### O segundo incidente: a barra com `close` nulo (28/08/2026)
 
@@ -172,9 +205,71 @@ window.PETR4 = {
   W:   { d, o, h, l, c, v, e },   // séries semanais desde 2010
   M:   { d, r },                  // retorno % mês a mês, para o heatmap
   DIV: { y, v },                  // proventos por ano (R$/ação)
-  REF: { D, W }                   // Ibovespa alinhado às datas de D e W
+  REF: { D, W },                  // Ibovespa alinhado às datas de D e W
+
+  // --- blocos analíticos, em resolução semanal ---
+  TR:    { d, preco, total, yd, y },      // retorno total x preço; yield TTM
+  BRENT: { d, p, b, md, corr, beta },     // PETR4 x Brent em R$; corr/beta móveis
+  PARES: { d, onpn, adr },                // PETR3÷PETR4; prêmio do ADR (%)
+  RISCO: { d, v21, v63, v252,             // vol. realizada anualizada por prazo
+           md, corr_ref, beta_ref },      // corr/beta móveis contra o Ibovespa
+  NEWS:  { "AAAA-MM-DD": [{h, t, v, u}] } // manchetes por data de pregão
 }
 ```
+
+### Metodologia dos blocos analíticos
+
+Estão em `scripts/analitica.py`, que é código puro — sem rede, sem estado, e
+testado com números conferíveis à mão. Quatro decisões valem ser lidas antes de
+usar os números:
+
+**Retornos logarítmicos** em correlação, beta e volatilidade; aritméticos em
+tudo que se compara com um extrato. Log é aditivo no tempo, o que faz a
+volatilidade escalar por `√252` sem viés.
+
+**Nada é interpolado.** Os pares usados em correlação e beta são só as datas em
+que **as duas** séries negociaram. Repetir o último valor conhecido produziria
+retorno zero num dia em que o ativo de fato andou, e retorno zero artificial
+derruba correlação e beta. O preenchimento por repetição existe, mas só para
+desenhar linha em gráfico — nunca para alimentar estatística.
+
+**Janela incompleta não é publicada.** Correlação de 60 pregões precisa de 60
+pregões; antes disso o valor é `null` e o gráfico não desenha. Beta com 8
+observações é ruído com casas decimais.
+
+**As séries longas saem amostradas por semana** (a última observação de cada
+uma). Amostrar não é suavizar: nenhum valor é recalculado ou misturado com o
+vizinho, e cada ponto publicado existiu naquele pregão. Em resolução diária
+esses blocos dobrariam o `data.js` sem mudar nada do que se vê.
+
+Sobre o **ADR**: cada ADR da Petrobras representa 2 ações, mas a rotina não
+confia nessa constante — mede a razão implícita nos próprios preços e só publica
+o painel se as duas baterem, para que um reagrupamento futuro não faça o painel
+mentir em silêncio. E o prêmio deve ser lido com cuidado: o ADR negocia em Nova
+York cerca de duas horas depois do fechamento da B3, então parte do desvio é
+notícia que chegou depois, não arbitragem aberta.
+
+### Manchetes: o que a rotina faz e o que ela não faz
+
+`scripts/noticias.py` coleta manchetes reais, datadas e atribuídas — título,
+veículo, horário e link — e as guarda por data de pregão em `noticias.json`. O
+dashboard as exibe ao lado da variação daquele dia.
+
+Ela **não** afirma que a ação subiu ou caiu *por causa* de nenhuma delas.
+Coincidência de data não estabelece causa, e uma rotina automática que
+escrevesse "a ação caiu porque X" estaria produzindo análise inventada com
+aparência de fato. O que se entrega é contexto datado e a fonte primária a um
+clique; a leitura causal é de quem tem o resto do quadro.
+
+O acervo é acumulado porque o endpoint de busca do Yahoo só devolve manchetes
+recentes — não há arquivo consultável para trás. Cada rodada mescla o que
+encontrou ao que já estava guardado, deduplicando por link, e o item já guardado
+prevalece sobre uma reescrita posterior do título. Nos primeiros dias há pouca
+coisa, e isso aparece como está: "sem manchete guardada para este pregão".
+
+A relevância é filtrada mecanicamente: o endpoint devolve muita retrospectiva de
+mercado que apenas cita PBR entre dezenas de tickers. Entra o que menciona a
+empresa no título **ou** o que tem poucos tickers relacionados.
 
 `M` omite o primeiro mês da série: não há fechamento anterior que sirva de base,
 e uma base parcial daria um número não comparável com os demais.
@@ -186,8 +281,25 @@ que ele não negociou; **não interpola**, e deixa `null` antes do primeiro dado
 
 ## O dashboard
 
-Além dos candles diários e semanais, suporte/resistência, tendência, médias
-móveis, RSI e proventos, o dashboard traz:
+A página é organizada em quatro seções, com uma faixa fixa no topo trazendo o
+que se confere primeiro: fechamento, variação no dia, yield de 12 meses, beta ao
+Brent em reais, volatilidade de 21 pregões e posição na faixa de 52 semanas.
+
+| seção | o que responde |
+| --- | --- |
+| **Preço & técnico** | candles diário e semanal, médias móveis, suporte/resistência, RSI, volume, e o noticiário de cada pregão recente |
+| **Drivers setoriais** | PETR4 × Brent em reais com correlação e beta móveis; PETR3/PETR4 e paridade do ADR; PETR4 × Ibovespa |
+| **Retorno & proventos** | retorno total × retorno de preço, yield TTM ao longo do tempo, proventos por ano, heatmap mensal |
+| **Risco** | drawdown, estrutura a termo da volatilidade realizada, beta e correlação móveis ao Ibovespa |
+
+Os painéis ficam todos no DOM e são escondidos por atributo, não removidos: o
+`Ctrl+F` do navegador continua achando o conteúdo das outras seções, e o link
+com âncora (`#risco`) abre direto na seção. Os gráficos são construídos com
+tudo visível e só então as abas escondem o que não é da seção ativa — o
+Chart.js mede o canvas na criação, e canvas dentro de container escondido mede
+zero.
+
+Além disso, o dashboard traz:
 
 - **volume diário** em barras, sincronizado com a janela do gráfico de preço;
 - **drawdown** — a série do recuo desde o topo, mais a pior queda histórica

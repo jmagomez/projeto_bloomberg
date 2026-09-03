@@ -13,7 +13,10 @@ Blocos publicados:
   para a comparação base 100. Some do payload se a coleta do índice falhar;
 * ``SESSAO`` — o último pregão por dentro: gap contra intradiário, onde fechou
   na faixa, volume contra a mediana, a decomposição do retorno em Ibovespa,
-  Brent em reais e resíduo, e as manchetes daquele dia.
+  Brent em reais e resíduo, e as manchetes daquele dia;
+* ``SESSOES`` — a mesma decomposição aplicada aos últimos 30 pregões, cada um
+  com a sua janela deslizante, mais as manchetes de cada dia. Serve de triagem:
+  mostra quais pregões sequer pedem explicação específica da companhia.
 
 A coleta e a validação de atualidade ficam em ``yahoo_chart.py``. Este módulo
 não estima nem completa preço nenhum. Se a fonte deve um pregão mas a coleta
@@ -64,6 +67,11 @@ SYMBOL_ADR = "PBR-A"  # ADR da preferencial
 # sai se as duas baterem. Medianas anuais de 2010 a 2026 ficaram entre 1,988 e
 # 2,025 — mas um reagrupamento futuro passaria despercebido sem a conferência.
 ACOES_POR_ADR = 2
+
+# Quantos pregões entram na triagem histórica (bloco SESSOES). ~6 semanas: o
+# bastante para o analista ver quais dias tiveram componente idiossincrático sem
+# transformar o painel numa lista infinita.
+PREGOES_NA_TRIAGEM = 30
 
 # Quantos pregões diários acompanham o payload. ~2 anos de sessões: suficiente
 # para o candlestick diário e as médias móveis curtas sem inchar o data.js.
@@ -544,6 +552,39 @@ def blocos_analiticos(
             sessao["commodity_nome"] = "Brent em reais"
     blocos["SESSAO"] = sessao
 
+    # --- triagem: os últimos pregões, cada um com o seu próprio resíduo ------
+    if referencia and brent_brl:
+        serie_atr = an.atribuicao_serie(
+            fechamentos, referencia, brent_brl, quantos=PREGOES_NA_TRIAGEM
+        )
+        if serie_atr:
+            por_data = {linha["d"]: i for i, linha in enumerate(linhas)}
+            sessoes = []
+            for atr in serie_atr:
+                k = por_data.get(atr["data"])
+                if k is None or k == 0:
+                    continue
+                anatomia = an.anatomia_do_pregao(linhas[: k + 1])
+                sessoes.append(
+                    {
+                        "d": atr["data"],
+                        "c": round(linhas[k]["c"], 2),
+                        "var": round((linhas[k]["c"] / linhas[k - 1]["c"] - 1) * 100, 2),
+                        "gap": anatomia.get("gap_pct"),
+                        "intra": anatomia.get("intradia_pct"),
+                        "vol": anatomia.get("vol_vs_mediana"),
+                        "res": atr["residuo_pct"],
+                        "z": atr["z_residuo"],
+                        "ref": atr["indice_ret_pct"],
+                        "com": atr["commodity_ret_pct"],
+                    }
+                )
+            blocos["SESSOES"] = sessoes
+            resumo["triagem_pregoes"] = len(sessoes)
+            resumo["triagem_idiossincraticos"] = sum(
+                1 for s in sessoes if s["z"] is not None and abs(s["z"]) >= 2
+            )
+
     resumo.update(an.posicao_na_faixa(linhas))
     return blocos, resumo
 
@@ -596,6 +637,8 @@ def monta_payload(
     # porque é dele que a análise trata.
     if manchetes:
         payload["SESSAO"]["noticias"] = manchetes.get(payload["SESSAO"]["d"], [])
+        for sessao in payload.get("SESSOES", []):
+            sessao["n"] = manchetes.get(sessao["d"], [])
     return payload
 
 

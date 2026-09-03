@@ -10,7 +10,10 @@ Blocos publicados:
 * ``M``    — retornos mensais desde 2010 (heatmap ano × mês);
 * ``DIV``  — proventos (dividendos + JCP) por ano;
 * ``REF``  — fechamentos do índice de referência alinhados às datas da PETR4,
-  para a comparação base 100. Some do payload se a coleta do índice falhar.
+  para a comparação base 100. Some do payload se a coleta do índice falhar;
+* ``SESSAO`` — o último pregão por dentro: gap contra intradiário, onde fechou
+  na faixa, volume contra a mediana, a decomposição do retorno em Ibovespa,
+  Brent em reais e resíduo, e as manchetes daquele dia.
 
 A coleta e a validação de atualidade ficam em ``yahoo_chart.py``. Este módulo
 não estima nem completa preço nenhum. Se a fonte deve um pregão mas a coleta
@@ -518,6 +521,29 @@ def blocos_analiticos(
         if validos:
             resumo["beta_ibov"] = validos[-1]
     blocos["RISCO"] = risco
+
+    # --- o último pregão por dentro ---------------------------------------
+    sessao: dict = {
+        "d": linhas[-1]["d"],
+        "o": round(linhas[-1]["o"], 2),
+        "h": round(linhas[-1]["h"], 2),
+        "l": round(linhas[-1]["l"], 2),
+        "c": round(linhas[-1]["c"], 2),
+        "v": round(linhas[-1]["v"] / 1e6, 1),
+        "prev": round(linhas[-2]["c"], 2) if len(linhas) > 1 else None,
+        "var_pct": round((linhas[-1]["c"] / linhas[-2]["c"] - 1) * 100, 2)
+        if len(linhas) > 1
+        else None,
+    }
+    sessao.update(an.anatomia_do_pregao(linhas))
+    if referencia and brent_brl:
+        atribuicao = an.atribuicao_do_dia(fechamentos, referencia, brent_brl)
+        if atribuicao:
+            sessao["atr_fatores"] = atribuicao
+            sessao["ref_nome"] = NOME_REF
+            sessao["commodity_nome"] = "Brent em reais"
+    blocos["SESSAO"] = sessao
+
     resumo.update(an.posicao_na_faixa(linhas))
     return blocos, resumo
 
@@ -564,8 +590,12 @@ def monta_payload(
     blocos, resumo = blocos_analiticos(linhas, proventos, aux)
     payload.update(blocos)
     stats.update(resumo)
+
+    # As manchetes publicadas são só as do pregão analisado. O acervo inteiro
+    # continua versionado em noticias.json; o que o dashboard mostra é o dia,
+    # porque é dele que a análise trata.
     if manchetes:
-        payload["NEWS"] = manchetes
+        payload["SESSAO"]["noticias"] = manchetes.get(payload["SESSAO"]["d"], [])
     return payload
 
 

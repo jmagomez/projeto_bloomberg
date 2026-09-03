@@ -216,7 +216,10 @@ window.PETR4 = {
   SESSAO: { d, o, h, l, c, v, prev, var_pct,
             gap_pct, intradia_pct, fecha_em, vol_vs_mediana, amplitude_vs_atr,
             atr_fatores: { ... },         // decomposição do dia (ver abaixo)
-            noticias: [{h, t, v, u}] }    // manchetes daquele pregão
+            noticias: [{h, t, v, u}] },   // manchetes daquele pregão
+  SESSOES: [{ d, c, var, gap, intra, vol, // triagem dos últimos 30 pregões
+              res, z, ref, com,           // resíduo e movimento dos fatores
+              n: [{h, t, v, u}] }]        // manchetes daquele dia
 }
 ```
 
@@ -280,6 +283,23 @@ a uma manchete seria ler sinal em ruído. Acima de 2σ, houve componente
 idiossincrático: isso estabelece **que** algo fora dos dois fatores atuou, e não
 **o quê**.
 
+**A triagem dos últimos 30 pregões.** O mesmo cálculo aplicado a cada dia, com
+janela deslizante própria — o beta que explica terça é o que vigorava até
+segunda, não um beta médio do período. Cada pregão sai com um selo: *beta de
+mercado* (|z| < 1), *misto* (1 ≤ |z| < 2) ou *idiossincrático* (|z| ≥ 2), ao lado
+das manchetes daquele dia.
+
+A ordem importa. Ler manchete por manchete procurando causa é procurar padrão em
+ruído: sempre se acha. O resíduo filtra antes — nos dias em que índice e petróleo
+dão conta do movimento, a manchete ao lado é coincidência de data, e a leitura
+causal ali é erro de raciocínio, não informação a mais.
+
+O painel também informa **quantos dias marcados o acaso sozinho produziria**: a
+2σ, cerca de 4,6% dos pregões cruzam o limiar por sorte, o que num conjunto de 30
+dá ~1,4. Se o número observado não excede isso, o painel diz explicitamente que o
+que se vê é compatível com ruído puro. Sem essa correção para comparações
+múltiplas, qualquer janela longa o bastante produziria "achados" garantidos.
+
 **A anatomia complementa.** `anatomia_do_pregao()` separa o **gap** (abertura
 contra fechamento anterior) do **intradiário** (fechamento contra abertura). É o
 teste mais barato de quando a informação chegou: notícia da véspera aparece no
@@ -331,6 +351,7 @@ Brent em reais, volatilidade de 21 pregões e posição na faixa de 52 semanas.
 | seção | o que responde |
 | --- | --- |
 | **Preço & técnico** | candles diário e semanal, médias móveis, suporte/resistência, RSI, volume, e a anatomia do **último** pregão com a decomposição do retorno em fatores |
+| **Pregões & notícias** | os últimos 30 pregões, cada um com o seu resíduo, o selo de triagem e as manchetes daquele dia |
 | **Drivers setoriais** | PETR4 × Brent em reais com correlação e beta móveis; PETR3/PETR4 e paridade do ADR; PETR4 × Ibovespa |
 | **Retorno & proventos** | retorno total × retorno de preço, yield TTM ao longo do tempo, proventos por ano, heatmap mensal |
 | **Risco** | drawdown, estrutura a termo da volatilidade realizada, beta e correlação móveis ao Ibovespa |

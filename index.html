@@ -1270,10 +1270,22 @@ if (RISCO && RISCO.md && RISCO.md.length) {
       + `estimada nos ${A.janela} pregões <em>anteriores</em> a ${A.data} — o próprio dia fica de fora, `
       + `senão o modelo se ajustaria ao movimento que se quer explicar. R² de ${NUM2.format(A.r2)} na janela`
       + (explicado != null && explicado > 0 ? `, e os fatores cobrem ${explicado}% do retorno deste pregão` : '')
-      + `. <br><br><em>Duas ressalvas que o número não carrega.</em> Primeira: isto mede associação, não causa. `
-      + `A direção econômica entre preço do petróleo e uma petroleira é evidente, mas o modelo em si não a prova. `
-      + `Segunda: Brent e câmbio negociam além do horário da B3, então o alinhamento diário é imperfeito — `
-      + `parte do que o modelo atribui ao petróleo pode ter chegado ao papel no pregão seguinte, e vice-versa.`;
+      + `. <br><br><em>Três ressalvas que o número não carrega.</em> `
+      + `<br>1. <strong>A PETR4 está dentro do ${X.ref_nome}.</strong> Petrobras ON e PN somam uma fatia grande do `
+      + `índice, então parte do "fator mercado" é a própria ação empurrando o índice que a explica. A contribuição `
+      + `do índice é, nessa medida, superestimada, e o resíduo subestimado — o teste de idiossincrasia é `
+      + `<em>conservador</em>: quando ele acusa componente específico, é porque sobrou mesmo. Corrigir isso exigiria `
+      + `um índice ex-Petrobras, que não existe em fonte pública gratuita; preferi declarar o viés a fingir que ele `
+      + `não está aqui. `
+      + `<br>2. <strong>Isto mede associação, não causa.</strong> A direção econômica entre preço do petróleo e uma `
+      + `petroleira é evidente, mas o modelo em si não a prova. `
+      + `<br>3. <strong>Os horários não coincidem.</strong> Brent e câmbio negociam além do pregão da B3, então parte `
+      + `do que o modelo atribui ao petróleo pode ter chegado ao papel só no dia seguinte, e vice-versa.`
+      + (A.r2 < 0.6 ? `<br><br><strong>E uma sobre o poder do teste.</strong> Com R² de ${NUM2.format(A.r2)}, os dois `
+        + `fatores explicam menos de dois terços da variância diária da janela, e o desvio-padrão dos resíduos é de `
+        + `${fmt(A.sigma_residuo_pct)} pp ao dia. Isso significa que só um resíduo acima de ${fmt(2 * A.sigma_residuo_pct)} pp `
+        + `alcançaria 2σ: movimentos idiossincráticos menores que isso são indetectáveis por este modelo, e a ausência `
+        + `de sinal aqui é evidência fraca de ausência de causa específica.` : '');
   }
 
   // --- manchetes do dia ---------------------------------------------------

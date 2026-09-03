@@ -286,3 +286,144 @@ def test_confere_razao_do_adr_aceita_a_razao_certa():
 def test_confere_razao_do_adr_recusa_amostra_pequena():
     adr, fx, local = {"2026-01-05": 20.0}, {"2026-01-05": 5.0}, {"2026-01-05": 50.0}
     assert not an.confere_razao_do_adr(adr, fx, local, esperado=2)
+
+
+# ---------------------------------------------------------------------------
+# Atribuição do pregão
+# ---------------------------------------------------------------------------
+
+
+def test_trio_exige_as_tres_series_no_mesmo_dia():
+    a = {"2026-01-05": 10.0, "2026-01-06": 11.0, "2026-01-07": 12.0}
+    b = {"2026-01-05": 100.0, "2026-01-06": 101.0, "2026-01-07": 110.0}
+    c = {"2026-01-05": 50.0, "2026-01-07": 55.0}  # feriado no dia 06
+    datas, _, _, _ = an.trio_de_retornos(a, b, c)
+    assert datas == ["2026-01-07"]
+
+
+def test_regressao_dupla_recupera_os_coeficientes():
+    x1 = retornos_variados(200, semente=11)
+    x2 = retornos_variados(200, semente=22)
+    y = [0.0004 + 0.8 * a + 0.5 * b for a, b in zip(x1, x2, strict=True)]
+    m = an.regressao_dupla(y, x1, x2)
+    assert m["b1"] == pytest.approx(0.8, abs=1e-6)
+    assert m["b2"] == pytest.approx(0.5, abs=1e-6)
+    assert m["alfa"] == pytest.approx(0.0004, abs=1e-8)
+    assert m["r2"] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_regressao_dupla_nao_confunde_fatores_correlacionados():
+    """O motivo de existir uma regressão múltipla em vez de dois betas soltos.
+
+    x2 carrega metade de x1. O beta univariado de cada um contra y superestima
+    a contribuição, porque cada um leva crédito pelo movimento comum.
+    """
+    x1 = retornos_variados(300, semente=5)
+    ruido = retornos_variados(300, semente=6)
+    x2 = [0.5 * a + 0.5 * b for a, b in zip(x1, ruido, strict=True)]
+    y = [1.0 * a + 0.0 * b for a, b in zip(x1, x2, strict=True)]
+    m = an.regressao_dupla(y, x1, x2)
+    assert m["b1"] == pytest.approx(1.0, abs=1e-6)
+    assert m["b2"] == pytest.approx(0.0, abs=1e-6)  # x2 não acrescenta nada
+
+
+def test_regressao_dupla_recusa_amostra_curta_e_colinearidade():
+    x = retornos_variados(10)
+    assert an.regressao_dupla(x, x, x) is None  # curta demais
+    x1 = retornos_variados(60, semente=3)
+    y = retornos_variados(60, semente=4)
+    assert an.regressao_dupla(y, x1, list(x1)) is None  # x2 idêntico a x1
+
+
+def _series_para_atribuicao(n=200, choque=0.0, semente=31):
+    """Ativo = 0,9·índice + 0,4·commodity + choque idiossincrático no fim."""
+    ri = retornos_variados(n, semente=semente)
+    rc = retornos_variados(n, semente=semente + 1)
+    ry = [0.9 * a + 0.4 * b for a, b in zip(ri, rc, strict=True)]
+    ry[-1] += choque
+    return de_retornos(ry), de_retornos(ri), de_retornos(rc)
+
+
+def test_atribuicao_separa_fatores_de_residuo():
+    ativo, indice, comm = _series_para_atribuicao(choque=0.0)
+    at = an.atribuicao_do_dia(ativo, indice, comm, janela=120)
+    assert at["beta_indice"] == pytest.approx(0.9, abs=0.01)
+    assert at["beta_commodity"] == pytest.approx(0.4, abs=0.01)
+    assert at["residuo_pct"] == pytest.approx(0.0, abs=0.01)
+    assert at["r2"] == pytest.approx(1.0, abs=0.001)
+    # as parcelas somam o retorno do dia, sem sobra
+    soma = (
+        at["parte_indice_pct"]
+        + at["parte_commodity_pct"]
+        + at["parte_alfa_pct"]
+        + at["residuo_pct"]
+    )
+    assert soma == pytest.approx(at["ret_log_pct"], abs=0.02)
+
+
+def test_atribuicao_acusa_choque_idiossincratico():
+    ativo, indice, comm = _series_para_atribuicao(choque=0.05)  # +5% fora dos fatores
+    at = an.atribuicao_do_dia(ativo, indice, comm, janela=120)
+    assert at["residuo_pct"] == pytest.approx(5.0, abs=0.05)
+    assert at["z_residuo"] > 5  # muito além do ruído da janela
+
+
+def test_atribuicao_estima_o_modelo_sem_o_proprio_dia():
+    """Incluir o dia analisado encolheria o resíduo artificialmente."""
+    ativo, indice, comm = _series_para_atribuicao(choque=0.05)
+    at = an.atribuicao_do_dia(ativo, indice, comm, janela=120)
+    assert at["janela"] == 120
+    # o choque continua inteiro no resíduo, não foi absorvido pelos betas
+    assert at["beta_indice"] == pytest.approx(0.9, abs=0.01)
+
+
+def test_atribuicao_nao_sai_sem_contraparte_no_ultimo_dia():
+    ativo, indice, comm = _series_para_atribuicao()
+    del indice[max(indice)]  # índice não negociou no último pregão do ativo
+    assert an.atribuicao_do_dia(ativo, indice, comm, janela=120) is None
+
+
+def test_atribuicao_nao_sai_com_historico_curto():
+    ativo, indice, comm = _series_para_atribuicao(n=40)
+    assert an.atribuicao_do_dia(ativo, indice, comm, janela=120) is None
+
+
+# ---------------------------------------------------------------------------
+# Anatomia do pregão
+# ---------------------------------------------------------------------------
+
+
+def _pregao(d, o, h, low, c, v=40_000_000):
+    return {"d": d, "o": o, "h": h, "l": low, "c": c, "v": v}
+
+
+def test_anatomia_separa_gap_de_intradia():
+    linhas = [
+        _pregao("2026-08-31", 44.0, 45.0, 44.0, 45.0),
+        _pregao("2026-09-01", 46.0, 47.0, 46.0, 46.5),
+    ]
+    a = an.anatomia_do_pregao(linhas)
+    assert a["gap_pct"] == pytest.approx((46.0 / 45.0 - 1) * 100, abs=0.01)
+    assert a["intradia_pct"] == pytest.approx((46.5 / 46.0 - 1) * 100, abs=0.01)
+
+
+def test_anatomia_mede_onde_fechou_na_faixa():
+    linhas = [
+        _pregao("2026-08-31", 44.0, 45.0, 44.0, 45.0),
+        _pregao("2026-09-01", 45.0, 47.0, 45.0, 47.0),
+    ]
+    assert an.anatomia_do_pregao(linhas)["fecha_em"] == 100.0  # fechou na máxima
+    linhas[-1] = _pregao("2026-09-01", 45.0, 47.0, 45.0, 45.0)
+    assert an.anatomia_do_pregao(linhas)["fecha_em"] == 0.0  # fechou na mínima
+
+
+def test_anatomia_compara_volume_com_a_mediana():
+    linhas = [_pregao(f"2026-08-{d:02d}", 10, 11, 9, 10, v=10_000_000) for d in range(1, 22)]
+    linhas.append(_pregao("2026-08-24", 10, 11, 9, 10, v=30_000_000))
+    a = an.anatomia_do_pregao(linhas)
+    assert a["vol_vs_mediana"] == pytest.approx(3.0, abs=0.01)
+    assert a["vol_mediana_M"] == pytest.approx(10.0, abs=0.01)
+
+
+def test_anatomia_com_um_pregao_so_nao_devolve_nada():
+    assert an.anatomia_do_pregao([_pregao("2026-09-01", 45, 46, 44, 45)]) == {}

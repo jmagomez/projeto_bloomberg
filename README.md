@@ -213,7 +213,10 @@ window.PETR4 = {
   PARES: { d, onpn, adr },                // PETR3÷PETR4; prêmio do ADR (%)
   RISCO: { d, v21, v63, v252,             // vol. realizada anualizada por prazo
            md, corr_ref, beta_ref },      // corr/beta móveis contra o Ibovespa
-  NEWS:  { "AAAA-MM-DD": [{h, t, v, u}] } // manchetes por data de pregão
+  SESSAO: { d, o, h, l, c, v, prev, var_pct,
+            gap_pct, intradia_pct, fecha_em, vol_vs_mediana, amplitude_vs_atr,
+            atr_fatores: { ... },         // decomposição do dia (ver abaixo)
+            noticias: [{h, t, v, u}] }    // manchetes daquele pregão
 }
 ```
 
@@ -248,6 +251,46 @@ o painel se as duas baterem, para que um reagrupamento futuro não faça o paine
 mentir em silêncio. E o prêmio deve ser lido com cuidado: o ADR negocia em Nova
 York cerca de duas horas depois do fechamento da B3, então parte do desvio é
 notícia que chegou depois, não arbitragem aberta.
+
+### O pregão do dia, e até onde dá para falar de causa
+
+O painel do último pregão tenta responder à pergunta que o leitor faz primeiro —
+*por que a ação andou hoje?* — separando o que é aritmética do que é
+julgamento.
+
+**A parte aritmética.** `atribuicao_do_dia()` regride os retornos logarítmicos
+da PETR4 sobre **Ibovespa e Brent em reais ao mesmo tempo**, e decompõe o
+retorno do dia em quatro parcelas que somam exatamente o total: contribuição do
+índice, contribuição do petróleo, intercepto da janela e resíduo.
+
+São dois fatores numa regressão múltipla, e não dois betas univariados somados,
+porque índice e petróleo são correlacionados entre si — somar betas univariados
+conta o mesmo movimento duas vezes e produz uma "explicação" que passa de 100%
+do dia sem que nada de errado apareça na conta. Há teste cobrindo exatamente
+esse caso.
+
+O modelo é estimado nos **120 pregões anteriores** ao dia analisado, nunca
+incluindo o próprio dia: incluí-lo faria o modelo se ajustar ao movimento que se
+quer explicar, encolhendo o resíduo artificialmente.
+
+**Onde a causalidade se resolve, ou não.** O resíduo é reportado em desvios-padrão
+dos resíduos da própria janela (`z_residuo`). Abaixo de 1σ, o dia é beta de
+mercado e de commodity e não pede explicação específica da companhia — atribuí-lo
+a uma manchete seria ler sinal em ruído. Acima de 2σ, houve componente
+idiossincrático: isso estabelece **que** algo fora dos dois fatores atuou, e não
+**o quê**.
+
+**A anatomia complementa.** `anatomia_do_pregao()` separa o **gap** (abertura
+contra fechamento anterior) do **intradiário** (fechamento contra abertura). É o
+teste mais barato de quando a informação chegou: notícia da véspera aparece no
+gap, fluxo formado durante a sessão aparece no intradiário. Junto vêm onde o
+fechamento caiu na faixa do dia, o volume contra a mediana de 21 pregões e a
+amplitude contra o ATR.
+
+**Duas ressalvas que ficam escritas no painel.** O modelo mede associação, não
+causa — a direção econômica entre petróleo e petroleira é evidente, mas o modelo
+em si não a prova. E Brent e câmbio negociam além do horário da B3, então o
+alinhamento diário é imperfeito.
 
 ### Manchetes: o que a rotina faz e o que ela não faz
 
@@ -287,7 +330,7 @@ Brent em reais, volatilidade de 21 pregões e posição na faixa de 52 semanas.
 
 | seção | o que responde |
 | --- | --- |
-| **Preço & técnico** | candles diário e semanal, médias móveis, suporte/resistência, RSI, volume, e o noticiário de cada pregão recente |
+| **Preço & técnico** | candles diário e semanal, médias móveis, suporte/resistência, RSI, volume, e a anatomia do **último** pregão com a decomposição do retorno em fatores |
 | **Drivers setoriais** | PETR4 × Brent em reais com correlação e beta móveis; PETR3/PETR4 e paridade do ADR; PETR4 × Ibovespa |
 | **Retorno & proventos** | retorno total × retorno de preço, yield TTM ao longo do tempo, proventos por ano, heatmap mensal |
 | **Risco** | drawdown, estrutura a termo da volatilidade realizada, beta e correlação móveis ao Ibovespa |

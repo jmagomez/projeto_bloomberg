@@ -92,6 +92,29 @@
   .nota { color:var(--muted); font-size:.76rem; line-height:1.5; margin-top:10px;
           border-left:2px solid var(--border); padding-left:10px; }
 
+  /* último pregão: cabeçalho, métricas e decomposição */
+  .sessao-cab2 { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:12px; }
+  .sessao-cab2 .preco { font-size:1.9rem; font-weight:600; font-variant-numeric:tabular-nums; }
+  .sessao-cab2 .delta { font-size:1.1rem; font-weight:600; font-variant-numeric:tabular-nums; }
+  .sessao-cab2 .ohlc { color:var(--muted); font-size:.8rem; font-variant-numeric:tabular-nums; }
+  .metricas { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:6px; }
+  .metricas div { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .metricas dt { color:var(--muted); font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; }
+  .metricas dd { margin:3px 0 0; font-size:1.05rem; font-weight:600; font-variant-numeric:tabular-nums; }
+  .metricas dd span { display:block; font-size:.7rem; font-weight:400; color:var(--muted); margin-top:2px; }
+
+  table.attrib { width:100%; border-collapse:collapse; font-size:.8rem; font-variant-numeric:tabular-nums; }
+  table.attrib th { color:var(--muted); font-weight:500; font-size:.7rem; text-transform:uppercase;
+                    letter-spacing:.04em; text-align:right; padding:4px 8px; border-bottom:1px solid var(--border); }
+  table.attrib th:first-child { text-align:left; }
+  table.attrib td { padding:7px 8px; border-bottom:1px solid rgba(48,54,61,.5); text-align:right; }
+  table.attrib td:first-child { text-align:left; color:var(--text); }
+  table.attrib tr.total td { border-top:1px solid var(--border); border-bottom:0; font-weight:600; }
+  table.attrib tr.residuo td:first-child { color:var(--long); }
+  .barra { position:relative; height:14px; min-width:120px; }
+  .barra i { position:absolute; top:2px; height:10px; border-radius:2px; }
+  .barra u { position:absolute; top:0; bottom:0; width:1px; background:var(--border); left:50%; }
+
   .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
   .empty-msg { color:var(--muted); font-size:.82rem; padding:24px 0; text-align:center; }
 
@@ -128,6 +151,9 @@
     .chart-box.h-sm { height:200px; }
     .chart-box.h-xs { height:90px; }
     .kpi div { flex:1 1 50%; }
+    .sessao-cab2 .preco { font-size:1.5rem; }
+    table.attrib { font-size:.72rem; }
+    .barra { min-width:70px; }
     .tabs button { padding:8px 10px; font-size:.78rem; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -332,11 +358,20 @@
     <div class="empty-msg" id="heatEmpty" style="display:none">Este data.js ainda não traz a série mensal — ela é preenchida na próxima execução da rotina.</div>
   </div>
 
-  <div class="panel" data-sec="preco" id="newsPanel">
-    <h2>Pregões recentes e o noticiário do dia <span class="info" title="Manchetes publicadas na data de cada pregão, com veículo, horário e link para a fonte.">ⓘ</span></h2>
-    <p class="nota" style="margin:0 0 14px"><strong>Isto é contexto datado, não atribuição de causa.</strong> Cada manchete a seguir foi publicada na data do pregão ao lado do qual aparece; o dashboard não afirma que a ação subiu ou caiu por causa dela. Coincidência de data não estabelece causa, e uma rotina automática não tem como fazer esse julgamento — quem tem o resto do quadro é você. O acervo é montado uma rodada por vez, então pregões mais antigos podem aparecer sem manchete.</p>
-    <div id="newsLista"></div>
-    <div class="empty-msg" id="newsEmpty" style="display:none">Ainda não há manchetes guardadas para estes pregões — o acervo começa a se formar na próxima execução da rotina.</div>
+  <div class="panel" data-sec="preco" id="sessaoPanel">
+    <h2>Último pregão — anatomia <span class="info" title="O pregão mais recente por dentro: quando a informação chegou (gap contra intradiário), onde o fechamento caiu na faixa do dia, e como o volume se compara à mediana recente.">ⓘ</span></h2>
+    <div class="sessao-cab2" id="sessaoCab"></div>
+    <dl class="metricas" id="sessaoMetricas"></dl>
+    <p class="nota" id="sessaoAnatomiaNota"></p>
+
+    <h2 style="margin-top:22px">Decomposição do retorno do dia <span class="info" title="Regressão dos retornos logarítmicos da PETR4 sobre Ibovespa e Brent em reais, estimada nos 120 pregões anteriores ao dia analisado. As parcelas somam exatamente o retorno do pregão.">ⓘ</span></h2>
+    <div id="sessaoAtrib"></div>
+    <p class="nota" id="sessaoLeitura"></p>
+    <div class="empty-msg" id="atribEmpty" style="display:none">A decomposição exige as séries do Ibovespa e do Brent em reais no mesmo pregão. Sem elas o painel não sai — um número que não significa nada seria pior do que ausência.</div>
+
+    <h2 style="margin-top:22px">Notícias publicadas nesse pregão</h2>
+    <div id="sessaoNoticias"></div>
+    <p class="nota"><strong>Estas manchetes são candidatas, não conclusões.</strong> Elas foram publicadas na data do pregão; nada aqui afirma que o preço se moveu por causa delas. Coincidência de data não estabelece causa — e note que a decomposição acima já responde à pergunta anterior a essa: se o resíduo é pequeno, o dia foi beta de mercado e de petróleo, e uma manchete específica da companhia provavelmente não é o que moveu o preço, por mais convidativa que pareça.</p>
   </div>
 
   <details class="help">
@@ -1111,34 +1146,143 @@ if (RISCO && RISCO.md && RISCO.md.length) {
   el('betaEmpty').style.display = 'block';
 }
 
-// ---- pregões recentes e o noticiário do dia -------------------------------
-// O que se publica aqui é manchete real, datada e atribuída, ao lado da
-// variação daquele pregão. A leitura causal fica com quem lê: o dashboard não
-// tem como estabelecer que um movimento de preço veio de uma notícia, e fingir
-// que tem seria inventar análise com cara de fato.
-(function montaNoticias(){
-  const NEWS = P.NEWS || null;
-  const caixa = el('newsLista');
-  if (!D || !D.d || !D.d.length) { el('newsPanel').style.display = 'none'; return; }
-  const n = Math.min(12, D.d.length);
-  const blocos = [];
-  for (let k = D.d.length - n; k < D.d.length; k++) {
-    const dia = D.d[k];
-    const varDia = k > 0 ? (D.c[k] / D.c[k-1] - 1) * 100 : null;
-    const itens = (NEWS && NEWS[dia]) || [];
-    const linhasHtml = itens.length
-      ? '<ul>' + itens.map(i =>
-          `<li><time>${i.h}</time><span><a href="${i.u}" target="_blank" rel="noopener noreferrer">${i.t}</a> <em>· ${i.v}</em></span></li>`).join('') + '</ul>'
-      : '<p class="empty-msg" style="padding:2px 0;text-align:left">sem manchete guardada para este pregão</p>';
-    blocos.push(
-      `<div class="sessao"><div class="sessao-cab">`
-      + `<b>${dia}</b>`
-      + `<span class="var ${varDia >= 0 ? 'up' : 'down'}">${varDia === null ? '' : fmtSigned(varDia) + '%'}</span>`
-      + `<span style="color:var(--muted);font-size:.78rem">fech. R$ ${fmt(D.c[k])} · vol. ${fmt1(D.v[k])} M</span>`
-      + `</div>${linhasHtml}</div>`);
+// ---- último pregão: anatomia e decomposição em fatores --------------------
+// Este painel tenta responder, com o que os dados permitem, à pergunta que o
+// leitor faz primeiro: por que a ação andou hoje?
+//
+// A resposta honesta tem duas partes. A primeira é aritmética e não depende de
+// julgamento: quanto do movimento é explicado por índice e petróleo, aos betas
+// que o próprio papel vinha exibindo. A segunda é o que sobra — e o resíduo é
+// onde qualquer causa específica da companhia teria de aparecer. Se o resíduo
+// cabe no ruído, a manchete bonita provavelmente não é a explicação.
+(function montaSessao(){
+  const X = P.SESSAO || null;
+  if (!X || !X.d) { el('sessaoPanel').style.display = 'none'; return; }
+
+  const cls = v => v == null ? '' : (v >= 0 ? 'up' : 'down');
+  const pp  = v => v == null ? '—' : fmtSigned(v) + ' pp';
+  const pc  = v => v == null ? '—' : fmtSigned(v) + '%';
+
+  el('sessaoCab').innerHTML =
+      `<span class="preco">R$ ${fmt(X.c)}</span>`
+    + `<span class="delta ${cls(X.var_pct)}">${pc(X.var_pct)}</span>`
+    + `<span class="ohlc">pregão de ${X.d} · A ${fmt(X.o)} · Máx ${fmt(X.h)} · Mín ${fmt(X.l)}`
+    + ` · fech. anterior ${fmt(X.prev)} · ${fmt1(X.v)} M</span>`;
+
+  const metricas = [
+    ['Gap de abertura', pc(X.gap_pct), 'abertura contra o fechamento anterior', cls(X.gap_pct)],
+    ['Movimento intradiário', pc(X.intradia_pct), 'fechamento contra a abertura', cls(X.intradia_pct)],
+    ['Fechou na faixa', X.fecha_em == null ? '—' : fmt1(X.fecha_em) + '%',
+      '100% = fechou na máxima do dia', ''],
+    ['Volume vs. mediana', X.vol_vs_mediana == null ? '—' : NUM2.format(X.vol_vs_mediana) + '×',
+      `mediana de 21 pregões: ${fmt1(X.vol_mediana_M)} M`, ''],
+    ['Amplitude vs. ATR', X.amplitude_vs_atr == null ? '—' : NUM2.format(X.amplitude_vs_atr) + '×',
+      X.atr_pct == null ? 'amplitude verdadeira' : `ATR de 21 pregões: ${fmt(X.atr_pct)}%`, ''],
+  ];
+  el('sessaoMetricas').innerHTML = metricas.map(([r, v, s, c]) =>
+    `<div><dt>${r}</dt><dd class="${c}">${v}<span>${s}</span></dd></div>`).join('');
+
+  // Leitura da anatomia: descreve o que se vê, sem afirmar por quê.
+  const partes = [];
+  if (X.gap_pct != null && X.intradia_pct != null) {
+    const g = Math.abs(X.gap_pct), i = Math.abs(X.intradia_pct);
+    if (g + i > 0.01) {
+      const fatia = Math.round(g / (g + i) * 100);
+      partes.push(fatia >= 65
+        ? `O movimento veio majoritariamente do gap (${fatia}% da amplitude do dia): a informação que o produziu já estava no preço na abertura, ou seja, chegou com o mercado fechado.`
+        : fatia <= 35
+        ? `O movimento se formou durante o pregão (${100 - fatia}% da amplitude veio do intradiário), não no gap de abertura — padrão de fluxo construído ao longo da sessão, não de notícia da véspera.`
+        : `Gap e intradiário dividem o dia em proporções parecidas (${fatia}% / ${100 - fatia}%).`);
+    }
   }
-  caixa.innerHTML = blocos.reverse().join('');
-  if (!NEWS || !Object.keys(NEWS).length) el('newsEmpty').style.display = 'block';
+  if (X.fecha_em != null) {
+    if (X.fecha_em >= 90) partes.push('O fechamento saiu colado na máxima, sem devolver no fim — pressão compradora que não cedeu.');
+    else if (X.fecha_em <= 10) partes.push('O fechamento saiu colado na mínima: o papel não sustentou nenhuma recuperação.');
+  }
+  if (X.vol_vs_mediana != null) {
+    partes.push(X.vol_vs_mediana >= 1.5
+      ? `O giro foi ${NUM2.format(X.vol_vs_mediana)}× a mediana das últimas 21 sessões — não é um movimento de liquidez rala.`
+      : X.vol_vs_mediana <= 0.7
+      ? `O giro ficou em ${NUM2.format(X.vol_vs_mediana)}× a mediana recente: movimento com pouca participação, o que enfraquece qualquer leitura de convicção.`
+      : `O giro ficou próximo da mediana recente (${NUM2.format(X.vol_vs_mediana)}×).`);
+  }
+  el('sessaoAnatomiaNota').innerHTML = partes.join(' ')
+    + ' <em>Nenhuma destas frases afirma causa: descrevem a forma do pregão, que é o que os preços mostram.</em>';
+
+  // --- decomposição em fatores -------------------------------------------
+  const A = X.atr_fatores || null;
+  if (!A) {
+    el('sessaoAtrib').style.display = 'none';
+    el('sessaoLeitura').style.display = 'none';
+    el('atribEmpty').style.display = 'block';
+  } else {
+    const linhas = [
+      [X.ref_nome || 'Índice', A.indice_ret_pct, A.beta_indice, A.parte_indice_pct],
+      [X.commodity_nome || 'Commodity', A.commodity_ret_pct, A.beta_commodity, A.parte_commodity_pct],
+      ['Intercepto (α da janela)', null, null, A.parte_alfa_pct],
+      ['Resíduo — não explicado', null, null, A.residuo_pct],
+    ];
+    const escala = Math.max(...linhas.map(l => Math.abs(l[3])), Math.abs(A.ret_log_pct), 0.01);
+    const barra = v => {
+      const largura = Math.abs(v) / escala * 50;
+      const esq = v >= 0 ? 50 : 50 - largura;
+      const cor = v >= 0 ? '#3fb950' : '#f85149';
+      return `<div class="barra"><u></u><i style="left:${esq}%;width:${largura}%;background:${cor}"></i></div>`;
+    };
+    el('sessaoAtrib').innerHTML =
+      '<table class="attrib"><thead><tr>'
+      + '<th>Fator</th><th>Movimento do fator</th><th>Beta parcial</th><th>Contribuição</th><th></th>'
+      + '</tr></thead><tbody>'
+      + linhas.map(([nome, mov, beta, contrib], i) =>
+          `<tr class="${i === 3 ? 'residuo' : ''}"><td>${nome}</td>`
+          + `<td class="${cls(mov)}">${mov == null ? '—' : pc(mov)}</td>`
+          + `<td>${beta == null ? '—' : NUM2.format(beta)}</td>`
+          + `<td class="${cls(contrib)}">${pp(contrib)}</td>`
+          + `<td>${barra(contrib)}</td></tr>`).join('')
+      + `<tr class="total"><td>Retorno do pregão (log)</td><td></td><td></td>`
+      + `<td class="${cls(A.ret_log_pct)}">${pp(A.ret_log_pct)}</td><td>${barra(A.ret_log_pct)}</td></tr>`
+      + '</tbody></table>';
+
+    // Leitura crítica do resíduo — é aqui que a pergunta causal se resolve
+    // ou não se resolve, e o texto tem de dizer qual dos dois aconteceu.
+    const z = A.z_residuo, absz = z == null ? null : Math.abs(z);
+    const explicado = A.ret_log_pct === 0 ? null
+      : Math.round((1 - Math.abs(A.residuo_pct) / Math.abs(A.ret_log_pct)) * 100);
+    let veredito;
+    if (absz == null) veredito = '';
+    else if (absz < 1) veredito =
+      `<strong>O dia não pede explicação específica da companhia.</strong> O resíduo de ${pp(A.residuo_pct)} `
+      + `está a ${NUM2.format(z)} desvio-padrão dos resíduos da própria janela — dentro do ruído normal. `
+      + `Índice e petróleo, aos betas que o papel vinha exibindo, dão conta do movimento. `
+      + `Atribuir este pregão a uma notícia da Petrobras seria ler sinal em ruído.`;
+    else if (absz < 2) veredito =
+      `<strong>Há um componente idiossincrático, mas modesto.</strong> O resíduo de ${pp(A.residuo_pct)} `
+      + `está a ${NUM2.format(z)} desvios-padrão: acima do ruído típico, longe de ser extraordinário. `
+      + `Compatível tanto com fato específico da companhia quanto com a instabilidade normal dos betas.`;
+    else veredito =
+      `<strong>O dia teve componente específico da companhia.</strong> Depois de descontados índice e petróleo, `
+      + `sobraram ${pp(A.residuo_pct)} — ${NUM2.format(absz)} desvios-padrão dos resíduos da janela, um evento `
+      + `que a distribuição recente não produz por acaso com frequência. Isso estabelece <em>que</em> algo `
+      + `fora dos dois fatores atuou; não estabelece <em>o quê</em>.`;
+
+    el('sessaoLeitura').innerHTML = veredito
+      + ` <br><br>Modelo: regressão dos retornos logarítmicos sobre ${X.ref_nome} e ${X.commodity_nome}, `
+      + `estimada nos ${A.janela} pregões <em>anteriores</em> a ${A.data} — o próprio dia fica de fora, `
+      + `senão o modelo se ajustaria ao movimento que se quer explicar. R² de ${NUM2.format(A.r2)} na janela`
+      + (explicado != null && explicado > 0 ? `, e os fatores cobrem ${explicado}% do retorno deste pregão` : '')
+      + `. <br><br><em>Duas ressalvas que o número não carrega.</em> Primeira: isto mede associação, não causa. `
+      + `A direção econômica entre preço do petróleo e uma petroleira é evidente, mas o modelo em si não a prova. `
+      + `Segunda: Brent e câmbio negociam além do horário da B3, então o alinhamento diário é imperfeito — `
+      + `parte do que o modelo atribui ao petróleo pode ter chegado ao papel no pregão seguinte, e vice-versa.`;
+  }
+
+  // --- manchetes do dia ---------------------------------------------------
+  const itens = X.noticias || [];
+  el('sessaoNoticias').innerHTML = itens.length
+    ? `<div class="sessao"><ul>` + itens.map(i =>
+        `<li><time>${i.h}</time><span><a href="${i.u}" target="_blank" rel="noopener noreferrer">${i.t}</a> <em>· ${i.v}</em></span></li>`
+      ).join('') + '</ul></div>'
+    : `<p class="empty-msg" style="padding:6px 0;text-align:left">Nenhuma manchete guardada para o pregão de ${X.d}. O acervo é montado uma rodada por vez e cobre a partir de quando a rotina passou a coletar.</p>`;
 })();
 
 // Por último de tudo: agora que cada gráfico já foi medido e desenhado com o

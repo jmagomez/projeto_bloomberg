@@ -340,3 +340,184 @@ def confere_razao_do_adr(
         return False
     mediana = razoes[len(razoes) // 2]
     return abs(mediana / esperado - 1) <= tolerancia
+
+
+# ---------------------------------------------------------------------------
+# Atribuição do pregão: quanto do movimento do dia os fatores explicam
+# ---------------------------------------------------------------------------
+
+
+def trio_de_retornos(
+    a: dict[str, float], b: dict[str, float], c: dict[str, float]
+) -> tuple[list[str], list[float], list[float], list[float]]:
+    """Retornos das três séries, só nas datas em que as três negociaram.
+
+    Mesma disciplina de ``pares_de_retornos``, estendida: o dia que falta em
+    qualquer uma das três sai do conjunto inteiro, porque uma regressão com
+    retorno zero fabricado em um regressor enviesa **todos** os coeficientes.
+    """
+    comuns = sorted(set(a) & set(b) & set(c))
+    datas, ra, rb, rc = [], [], [], []
+    for anterior, atual in zip(comuns, comuns[1:], strict=False):
+        valores = (a[anterior], a[atual], b[anterior], b[atual], c[anterior], c[atual])
+        if any(v is None or v <= 0 for v in valores):
+            continue
+        datas.append(atual)
+        ra.append(math.log(a[atual] / a[anterior]))
+        rb.append(math.log(b[atual] / b[anterior]))
+        rc.append(math.log(c[atual] / c[anterior]))
+    return datas, ra, rb, rc
+
+
+def regressao_dupla(y: list[float], x1: list[float], x2: list[float]) -> dict | None:
+    """OLS de ``y`` sobre dois regressores, com intercepto.
+
+    Por que dois fatores e não dois betas separados: o Ibovespa e o Brent em
+    reais são correlacionados entre si. Somar o beta univariado de um com o do
+    outro conta o mesmo movimento duas vezes e produz uma "explicação" que passa
+    de 100% do dia sem que nada de errado apareça na conta. Os coeficientes
+    parciais desta regressão respondem à pergunta certa: quanto a PETR4 anda com
+    o Brent **mantido o índice constante**, e vice-versa.
+
+    Devolve coeficientes, R², desvio-padrão dos resíduos (com ``n-3`` graus de
+    liberdade) e os próprios resíduos. ``None`` se a amostra for pequena demais
+    ou os regressores forem colineares a ponto de o sistema não ter solução.
+    """
+    n = len(y)
+    if n < 20 or len(x1) != n or len(x2) != n:
+        return None
+    my, m1, m2 = sum(y) / n, sum(x1) / n, sum(x2) / n
+    s11 = sum((v - m1) ** 2 for v in x1)
+    s22 = sum((v - m2) ** 2 for v in x2)
+    s12 = sum((a - m1) * (b - m2) for a, b in zip(x1, x2, strict=True))
+    s1y = sum((a - m1) * (b - my) for a, b in zip(x1, y, strict=True))
+    s2y = sum((a - m2) * (b - my) for a, b in zip(x2, y, strict=True))
+    syy = sum((v - my) ** 2 for v in y)
+    det = s11 * s22 - s12**2
+    if abs(det) < VARIANCIA_MINIMA or syy < VARIANCIA_MINIMA:
+        return None
+
+    b1 = (s22 * s1y - s12 * s2y) / det
+    b2 = (s11 * s2y - s12 * s1y) / det
+    alfa = my - b1 * m1 - b2 * m2
+    residuos = [yi - alfa - b1 * a - b2 * b for yi, a, b in zip(y, x1, x2, strict=True)]
+    sse = sum(r**2 for r in residuos)
+    graus = n - 3
+    return {
+        "alfa": alfa,
+        "b1": b1,
+        "b2": b2,
+        "r2": max(0.0, min(1.0, 1 - sse / syy)),
+        "sigma_residuo": math.sqrt(sse / graus) if graus > 0 else None,
+        "residuos": residuos,
+        "n": n,
+    }
+
+
+def atribuicao_do_dia(
+    ativo: dict[str, float],
+    indice: dict[str, float],
+    commodity: dict[str, float],
+    janela: int = 120,
+) -> dict | None:
+    """Decompõe o retorno do último pregão em fatores e resíduo.
+
+    O modelo é estimado nos ``janela`` pregões **anteriores** ao dia analisado —
+    nunca incluindo o próprio dia. Incluí-lo faria o modelo se ajustar ao
+    movimento que se quer explicar, encolhendo artificialmente o resíduo: seria
+    medir a surpresa com uma régua que já sabe a resposta.
+
+    Tudo em retorno logarítmico, que é aditivo: as três parcelas somam
+    exatamente o retorno do dia, sem termo cruzado escondido.
+
+    ``z_residuo`` é o resíduo em desvios-padrão dos resíduos da janela. É a
+    pergunta que interessa: o que sobrou depois de índice e petróleo é grande o
+    bastante para ser notícia da companhia, ou cabe no ruído de sempre?
+
+    Devolve ``None`` quando não há dado suficiente ou o último pregão do ativo
+    não tem contraparte nas outras duas séries — caso em que o painel não sai,
+    em vez de sair com um número que não significa nada.
+    """
+    datas, ry, ri, rc = trio_de_retornos(ativo, indice, commodity)
+    if len(datas) < janela + 1:
+        return None
+
+    ultima_data = max(ativo)
+    if datas[-1] != ultima_data:
+        # O último pregão do ativo não tem par nas outras séries (feriado lá
+        # fora, ou dado ainda não publicado). Sem contraparte, não há
+        # decomposição possível.
+        return None
+
+    modelo = regressao_dupla(ry[-janela - 1 : -1], ri[-janela - 1 : -1], rc[-janela - 1 : -1])
+    if not modelo:
+        return None
+
+    r_ativo, r_indice, r_comm = ry[-1], ri[-1], rc[-1]
+    parte_indice = modelo["b1"] * r_indice
+    parte_comm = modelo["b2"] * r_comm
+    residuo = r_ativo - modelo["alfa"] - parte_indice - parte_comm
+    sigma = modelo["sigma_residuo"]
+
+    def pct(x: float) -> float:
+        return round(x * 100, 2)
+
+    return {
+        "data": ultima_data,
+        "ret_log_pct": pct(r_ativo),
+        "indice_ret_pct": pct(r_indice),
+        "commodity_ret_pct": pct(r_comm),
+        "beta_indice": round(modelo["b1"], 3),
+        "beta_commodity": round(modelo["b2"], 3),
+        "parte_indice_pct": pct(parte_indice),
+        "parte_commodity_pct": pct(parte_comm),
+        "parte_alfa_pct": pct(modelo["alfa"]),
+        "residuo_pct": pct(residuo),
+        "z_residuo": round(residuo / sigma, 2) if sigma else None,
+        "sigma_residuo_pct": pct(sigma) if sigma else None,
+        "r2": round(modelo["r2"], 3),
+        "janela": modelo["n"],
+    }
+
+
+def anatomia_do_pregao(linhas: list[dict], janela_vol: int = 21) -> dict:
+    """O último pregão por dentro: gap, movimento intradiário, faixa e volume.
+
+    A separação entre **gap** (abertura contra o fechamento anterior) e
+    **intradiário** (fechamento contra a abertura) é o teste mais barato de
+    quando a informação chegou. Notícia que saiu com o mercado fechado aparece
+    no gap; fluxo que se formou durante o pregão aparece no intradiário. Um dia
+    todo feito no gap e um dia todo feito no intradiário pedem explicações
+    diferentes, mesmo com a mesma variação no fim.
+
+    ``fecha_em`` diz onde o fechamento caiu dentro da faixa do dia: 100 é fechar
+    na máxima, 0 na mínima. Fechar colado na máxima com volume acima da média é
+    a assinatura de pressão compradora que não cedeu — não prova causa, mas
+    diferencia um dia de convicção de um repique que devolveu no fim.
+    """
+    if len(linhas) < 2:
+        return {}
+    hoje, ontem = linhas[-1], linhas[-2]
+    faixa = hoje["h"] - hoje["l"]
+    volumes = sorted(r["v"] for r in linhas[-janela_vol:])
+    mediana_vol = volumes[len(volumes) // 2] if volumes else 0
+
+    # Amplitude verdadeira: considera o gap, então compara dias com abertura
+    # descolada sem subestimar a agitação do pregão.
+    amplitudes = [
+        max(r["h"], a["c"]) - min(r["l"], a["c"])
+        for a, r in zip(linhas[-janela_vol - 1 : -1], linhas[-janela_vol:], strict=False)
+    ]
+    atr = sum(amplitudes) / len(amplitudes) if amplitudes else None
+    amplitude_hoje = max(hoje["h"], ontem["c"]) - min(hoje["l"], ontem["c"])
+
+    return {
+        "gap_pct": round((hoje["o"] / ontem["c"] - 1) * 100, 2),
+        "intradia_pct": round((hoje["c"] / hoje["o"] - 1) * 100, 2),
+        "faixa_pct": round(faixa / ontem["c"] * 100, 2),
+        "fecha_em": round((hoje["c"] - hoje["l"]) / faixa * 100, 1) if faixa > 0 else None,
+        "vol_vs_mediana": round(hoje["v"] / mediana_vol, 2) if mediana_vol else None,
+        "vol_mediana_M": round(mediana_vol / 1e6, 1),
+        "amplitude_vs_atr": round(amplitude_hoje / atr, 2) if atr else None,
+        "atr_pct": round(atr / ontem["c"] * 100, 2) if atr else None,
+    }

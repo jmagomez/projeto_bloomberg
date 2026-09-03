@@ -104,8 +104,8 @@ def test_dividend_yield_usa_o_ultimo_fechamento():
 
 def test_payload_tem_os_blocos_esperados():
     payload = ud.monta_payload([dict(p) for p in SERIE], {"2026-08-11": 0.5})
-    # TR e RISCO saem sempre: dependem só da própria série da PETR4.
-    assert set(payload) == {"stats", "D", "W", "M", "DIV", "TR", "RISCO"}
+    # TR, RISCO e SESSAO saem sempre: dependem só da própria série da PETR4.
+    assert set(payload) == {"stats", "D", "W", "M", "DIV", "TR", "RISCO", "SESSAO"}
     assert payload["DIV"] == {"y": ["2026"], "v": [0.5]}
     assert payload["D"]["e"][1] == 0.5  # provento marcado no dia certo
     assert json.dumps(payload)  # serializável
@@ -225,7 +225,7 @@ def test_alinha_referencia_sem_dados_devolve_vazio():
 def test_payload_traz_os_blocos_novos():
     ref = {p["d"]: 100.0 + i for i, p in enumerate(SERIE)}
     payload = ud.monta_payload([dict(p) for p in SERIE], {}, ref, pendente="2026-08-24")
-    assert set(payload) == {"stats", "D", "W", "M", "DIV", "REF", "TR", "RISCO"}
+    assert set(payload) == {"stats", "D", "W", "M", "DIV", "REF", "TR", "RISCO", "SESSAO"}
     assert payload["stats"]["pending_session"] == "2026-08-24"
     assert payload["stats"]["close_source"] == "chart"
     assert payload["stats"]["max_drawdown_pct"] <= 0
@@ -264,7 +264,8 @@ def test_payload_com_preco_zerado_nao_e_publicado():
 
 def test_payload_com_abertura_zerada_nao_e_publicado():
     serie = [dict(p) for p in SERIE]
-    serie[-1]["o"] = 0.0
+    serie[-1]["o"] = 0.01  # baixo o bastante para ser absurdo, positivo o bastante
+    serie[-1]["l"] = 0.0  # para a montagem chegar até a trava do payload
     with pytest.raises(DadosDesatualizadosError, match="impossível"):
         ud.confere_precos_possiveis(ud.monta_payload(serie, {}))
 
@@ -333,7 +334,9 @@ def test_amostra_semanal_preserva_varias_series_alinhadas():
 
 def test_blocos_sem_auxiliares_traz_so_o_que_depende_da_propria_serie():
     blocos, resumo = ud.blocos_analiticos([dict(p) for p in SERIE], {}, {})
-    assert set(blocos) == {"TR", "RISCO"}
+    assert set(blocos) == {"TR", "RISCO", "SESSAO"}
+    # sem índice nem Brent não há como decompor o dia em fatores
+    assert "atr_fatores" not in blocos["SESSAO"]
     assert "faixa_pct" in resumo  # a faixa de 52 semanas sai da própria série
 
 
@@ -379,8 +382,26 @@ def test_resumo_traz_a_volatilidade_por_prazo():
     assert "faixa_max" in resumo and "faixa_min" in resumo
 
 
-def test_manchetes_entram_no_payload_quando_existem():
-    manchetes = {"2026-08-21": [{"h": "10:00", "t": "T", "v": "V", "u": "https://x"}]}
+def test_so_as_manchetes_do_pregao_analisado_sao_publicadas():
+    """O acervo inteiro fica em noticias.json; o payload leva só o dia."""
+    do_dia = [{"h": "10:00", "t": "Do dia", "v": "V", "u": "https://x"}]
+    manchetes = {
+        "2026-08-21": do_dia,
+        "2026-08-20": [{"h": "09:00", "t": "Da véspera", "v": "V", "u": "https://y"}],
+    }
     payload = ud.monta_payload([dict(p) for p in SERIE], {}, None, None, None, manchetes)
-    assert payload["NEWS"] == manchetes
-    assert "NEWS" not in ud.monta_payload([dict(p) for p in SERIE], {})
+    assert payload["SESSAO"]["d"] == "2026-08-21"
+    assert payload["SESSAO"]["noticias"] == do_dia
+    assert "NEWS" not in payload
+
+
+def test_sessao_traz_a_anatomia_do_ultimo_pregao():
+    payload = ud.monta_payload([dict(p) for p in SERIE], {})
+    s = payload["SESSAO"]
+    assert s["d"] == "2026-08-21"
+    assert s["c"] == 11.2 and s["prev"] == 11.1
+    assert s["var_pct"] == pytest.approx(0.9, abs=0.01)
+    # abertura 11,1 contra fechamento anterior 11,1: sem gap
+    assert s["gap_pct"] == pytest.approx(0.0, abs=0.01)
+    assert s["intradia_pct"] == pytest.approx(0.9, abs=0.01)
+    assert 0 <= s["fecha_em"] <= 100

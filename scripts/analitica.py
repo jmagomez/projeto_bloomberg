@@ -449,11 +449,25 @@ def atribuicao_do_dia(
         # decomposição possível.
         return None
 
-    modelo = regressao_dupla(ry[-janela - 1 : -1], ri[-janela - 1 : -1], rc[-janela - 1 : -1])
+    return _atribui(len(datas) - 1, datas, ry, ri, rc, janela)
+
+
+def _atribui(
+    i: int, datas: list[str], ry: list[float], ri: list[float], rc: list[float], janela: int
+) -> dict | None:
+    """Decompõe o pregão de índice ``i`` usando só os ``janela`` dias antes dele.
+
+    Separado de ``atribuicao_do_dia`` para que a série histórica use exatamente
+    a mesma conta do painel do dia — se as duas divergissem, o leitor veria dois
+    resíduos diferentes para o mesmo pregão e não teria como saber qual crer.
+    """
+    if i < janela:
+        return None
+    modelo = regressao_dupla(ry[i - janela : i], ri[i - janela : i], rc[i - janela : i])
     if not modelo:
         return None
 
-    r_ativo, r_indice, r_comm = ry[-1], ri[-1], rc[-1]
+    r_ativo, r_indice, r_comm = ry[i], ri[i], rc[i]
     parte_indice = modelo["b1"] * r_indice
     parte_comm = modelo["b2"] * r_comm
     residuo = r_ativo - modelo["alfa"] - parte_indice - parte_comm
@@ -463,7 +477,7 @@ def atribuicao_do_dia(
         return round(x * 100, 2)
 
     return {
-        "data": ultima_data,
+        "data": datas[i],
         "ret_log_pct": pct(r_ativo),
         "indice_ret_pct": pct(r_indice),
         "commodity_ret_pct": pct(r_comm),
@@ -478,6 +492,36 @@ def atribuicao_do_dia(
         "r2": round(modelo["r2"], 3),
         "janela": modelo["n"],
     }
+
+
+def atribuicao_serie(
+    ativo: dict[str, float],
+    indice: dict[str, float],
+    commodity: dict[str, float],
+    janela: int = 120,
+    quantos: int = 30,
+) -> list[dict]:
+    """A mesma decomposição, aplicada aos últimos ``quantos`` pregões.
+
+    Cada dia é estimado com a sua **própria** janela anterior, deslizante — o
+    beta que explica o pregão de terça é o que vigorava até segunda, não um beta
+    médio do período inteiro. Isso custa uma regressão por dia e evita o
+    anacronismo de julgar um pregão com informação que só existiu depois dele.
+
+    Serve para triagem: em vez de ler manchete por manchete e imaginar
+    causalidade, o analista vê de imediato **quais dias sequer pedem explicação
+    específica da companhia** e concentra a leitura nos que pedem.
+    """
+    datas, ry, ri, rc = trio_de_retornos(ativo, indice, commodity)
+    if len(datas) <= janela:
+        return []
+    inicio = max(janela, len(datas) - quantos)
+    saida = []
+    for i in range(inicio, len(datas)):
+        atr = _atribui(i, datas, ry, ri, rc, janela)
+        if atr:
+            saida.append(atr)
+    return saida
 
 
 def anatomia_do_pregao(linhas: list[dict], janela_vol: int = 21) -> dict:

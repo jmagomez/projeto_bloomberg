@@ -427,3 +427,39 @@ def test_anatomia_compara_volume_com_a_mediana():
 
 def test_anatomia_com_um_pregao_so_nao_devolve_nada():
     assert an.anatomia_do_pregao([_pregao("2026-09-01", 45, 46, 44, 45)]) == {}
+
+
+def test_serie_de_atribuicao_usa_janela_deslizante_propria_de_cada_dia():
+    """O beta que explica terça é o que vigorava até segunda, não um beta médio."""
+    ativo, indice, comm = _series_para_atribuicao(n=200)
+    serie_atr = an.atribuicao_serie(ativo, indice, comm, janela=120, quantos=10)
+    assert len(serie_atr) == 10
+    assert [x["data"] for x in serie_atr] == sorted(x["data"] for x in serie_atr)
+    # o último item da série tem de bater com o painel do dia, na vírgula
+    do_dia = an.atribuicao_do_dia(ativo, indice, comm, janela=120)
+    assert serie_atr[-1] == do_dia
+
+
+def test_serie_de_atribuicao_isola_o_dia_do_choque():
+    """Só o pregão que levou o choque deve acusar resíduo grande."""
+    ri = retornos_variados(200, semente=41)
+    rc = retornos_variados(200, semente=42)
+    ry = [0.9 * a + 0.4 * b for a, b in zip(ri, rc, strict=True)]
+    ry[-3] += 0.06  # choque em um pregão específico
+    serie_atr = an.atribuicao_serie(
+        de_retornos(ry), de_retornos(ri), de_retornos(rc), janela=120, quantos=8
+    )
+    grandes = [x for x in serie_atr if abs(x["z_residuo"]) >= 2]
+    assert len(grandes) == 1
+    assert grandes[0]["data"] == serie_atr[-3]["data"]
+    assert grandes[0]["residuo_pct"] == pytest.approx(6.0, abs=0.1)
+
+
+def test_serie_de_atribuicao_sem_historico_suficiente_volta_vazia():
+    ativo, indice, comm = _series_para_atribuicao(n=50)
+    assert an.atribuicao_serie(ativo, indice, comm, janela=120, quantos=10) == []
+
+
+def test_serie_de_atribuicao_respeita_o_limite_pedido():
+    ativo, indice, comm = _series_para_atribuicao(n=300)
+    assert len(an.atribuicao_serie(ativo, indice, comm, janela=120, quantos=5)) == 5

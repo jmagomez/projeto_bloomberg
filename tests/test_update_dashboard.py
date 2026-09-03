@@ -405,3 +405,81 @@ def test_sessao_traz_a_anatomia_do_ultimo_pregao():
     assert s["gap_pct"] == pytest.approx(0.0, abs=0.01)
     assert s["intradia_pct"] == pytest.approx(0.9, abs=0.01)
     assert 0 <= s["fecha_em"] <= 100
+
+
+# ---------------------------------------------------------------------------
+# Triagem: os últimos pregões, cada um com o seu próprio resíduo
+# ---------------------------------------------------------------------------
+
+
+def _serie_longa(n=200, semente=17):
+    """Série com histórico suficiente para a janela de 120 pregões."""
+    import math
+    from datetime import date, timedelta
+
+    estado = semente
+
+    def proximo():
+        nonlocal estado
+        estado = (1103515245 * estado + 12345) % (2**31)
+        return (estado / 2**31 - 0.5) * 0.04
+
+    d = date(2025, 1, 6)
+    linhas, ref, brent, cambio = [], {}, {}, {}
+    p, i, b = 30.0, 120000.0, 80.0
+    while len(linhas) < n:
+        if d.weekday() < 5:
+            ri, rb = proximo(), proximo()
+            i *= math.exp(ri)
+            b *= math.exp(rb)
+            p *= math.exp(0.9 * ri + 0.4 * rb)
+            k = d.isoformat()
+            linhas.append(
+                {
+                    "d": k,
+                    "o": p * 0.996,
+                    "h": p * 1.01,
+                    "l": p * 0.99,
+                    "c": round(p, 2),
+                    "v": 40_000_000,
+                }
+            )
+            ref[k] = round(i, 2)
+            brent[k] = round(b, 2)
+            cambio[k] = 5.0
+        d += timedelta(days=1)
+    return linhas, ref, brent, cambio
+
+
+def test_triagem_sai_com_um_registro_por_pregao_recente():
+    linhas, ref, brent, cambio = _serie_longa()
+    blocos, resumo = ud.blocos_analiticos(
+        linhas, {}, {"ref": ref, "brent": brent, "cambio": cambio}
+    )
+    sessoes = blocos["SESSOES"]
+    assert 0 < len(sessoes) <= ud.PREGOES_NA_TRIAGEM
+    assert [s["d"] for s in sessoes] == sorted(s["d"] for s in sessoes)
+    assert resumo["triagem_pregoes"] == len(sessoes)
+    assert "triagem_idiossincraticos" in resumo
+    # o último da triagem é o mesmo pregão do painel do dia
+    assert sessoes[-1]["d"] == blocos["SESSAO"]["d"]
+    assert sessoes[-1]["res"] == blocos["SESSAO"]["atr_fatores"]["residuo_pct"]
+
+
+def test_triagem_nao_sai_sem_indice_ou_brent():
+    linhas, ref, _, _ = _serie_longa()
+    blocos, _ = ud.blocos_analiticos(linhas, {}, {"ref": ref})
+    assert "SESSOES" not in blocos
+
+
+def test_manchetes_sao_anexadas_a_cada_pregao_da_triagem():
+    linhas, ref, brent, cambio = _serie_longa()
+    alvo = linhas[-1]["d"]
+    manchetes = {alvo: [{"h": "10:00", "t": "T", "v": "V", "u": "https://x"}]}
+    payload = ud.monta_payload(
+        linhas, {}, ref, None, {"ref": ref, "brent": brent, "cambio": cambio}, manchetes
+    )
+    por_data = {s["d"]: s for s in payload["SESSOES"]}
+    assert por_data[alvo]["n"] == manchetes[alvo]
+    outro = payload["SESSOES"][0]["d"]
+    assert por_data[outro]["n"] == []  # dia sem manchete guardada vem vazio, não ausente

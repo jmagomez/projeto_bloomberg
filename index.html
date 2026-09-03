@@ -111,6 +111,28 @@
   table.attrib td:first-child { text-align:left; color:var(--text); }
   table.attrib tr.total td { border-top:1px solid var(--border); border-bottom:0; font-weight:600; }
   table.attrib tr.residuo td:first-child { color:var(--long); }
+  /* triagem de pregões */
+  .triagem { display:grid; gap:0; }
+  .tri { border-bottom:1px solid var(--border); padding:12px 0; display:grid;
+         grid-template-columns:auto 1fr; gap:4px 16px; align-items:start; }
+  .tri:last-child { border-bottom:0; }
+  .tri-cab { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; grid-column:1/-1; }
+  .tri-cab b { font-size:.9rem; font-variant-numeric:tabular-nums; }
+  .tri-cab .var { font-weight:600; font-variant-numeric:tabular-nums; min-width:56px; }
+  .tri-cab .det { color:var(--muted); font-size:.75rem; font-variant-numeric:tabular-nums; }
+  .selo { font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; padding:2px 8px;
+          border-radius:10px; border:1px solid var(--border); white-space:nowrap; }
+  .selo.beta { color:var(--muted); }
+  .selo.misto { color:var(--gold); border-color:#5c4708; }
+  .selo.idio { color:var(--long); border-color:#6b5a10; background:rgba(255,223,93,.08); font-weight:600; }
+  .tri ul { list-style:none; grid-column:1/-1; display:grid; gap:4px; margin-top:2px; }
+  .tri li { font-size:.8rem; line-height:1.4; display:flex; gap:8px; }
+  .tri li time { color:var(--muted); font-variant-numeric:tabular-nums; flex:0 0 auto; }
+  .tri li a { color:var(--text); text-decoration:none; border-bottom:1px solid var(--border); }
+  .tri li a:hover { color:var(--accent); border-bottom-color:var(--accent); }
+  .tri li em { color:var(--muted); font-style:normal; font-size:.73rem; }
+  .tri .sem { color:var(--muted); font-size:.76rem; grid-column:1/-1; font-style:italic; }
+
   .barra { position:relative; height:14px; min-width:120px; }
   .barra i { position:absolute; top:2px; height:10px; border-radius:2px; }
   .barra u { position:absolute; top:0; bottom:0; width:1px; background:var(--border); left:50%; }
@@ -176,6 +198,7 @@
     <button role="tab" data-tab="preco" aria-selected="true">Preço &amp; técnico</button>
     <button role="tab" data-tab="drivers" aria-selected="false">Drivers setoriais</button>
     <button role="tab" data-tab="retorno" aria-selected="false">Retorno &amp; proventos</button>
+    <button role="tab" data-tab="sessoes" aria-selected="false">Pregões &amp; notícias</button>
     <button role="tab" data-tab="risco" aria-selected="false">Risco</button>
   </nav>
 
@@ -372,6 +395,14 @@
     <h2 style="margin-top:22px">Notícias publicadas nesse pregão</h2>
     <div id="sessaoNoticias"></div>
     <p class="nota"><strong>Estas manchetes são candidatas, não conclusões.</strong> Elas foram publicadas na data do pregão; nada aqui afirma que o preço se moveu por causa delas. Coincidência de data não estabelece causa — e note que a decomposição acima já responde à pergunta anterior a essa: se o resíduo é pequeno, o dia foi beta de mercado e de petróleo, e uma manchete específica da companhia provavelmente não é o que moveu o preço, por mais convidativa que pareça.</p>
+  </div>
+
+  <div class="panel" data-sec="sessoes" id="triagemPanel">
+    <h2>Pregões recentes — o que cada dia pede de explicação <span class="info" title="Cada pregão passa pela mesma decomposição do painel do dia, com a sua própria janela deslizante de 120 pregões anteriores. O selo resume o tamanho do resíduo.">ⓘ</span></h2>
+    <p class="nota" id="triagemResumo" style="margin:0 0 14px"></p>
+    <div class="triagem" id="triagemLista"></div>
+    <p class="nota" id="triagemRodape"></p>
+    <div class="empty-msg" id="triagemEmpty" style="display:none">A triagem exige as séries do Ibovespa e do Brent em reais. Sem elas o painel não sai — um número que não significa nada seria pior do que ausência.</div>
   </div>
 
   <details class="help">
@@ -1295,6 +1326,86 @@ if (RISCO && RISCO.md && RISCO.md.length) {
         `<li><time>${i.h}</time><span><a href="${i.u}" target="_blank" rel="noopener noreferrer">${i.t}</a> <em>· ${i.v}</em></span></li>`
       ).join('') + '</ul></div>'
     : `<p class="empty-msg" style="padding:6px 0;text-align:left">Nenhuma manchete guardada para o pregão de ${X.d}. O acervo é montado uma rodada por vez e cobre a partir de quando a rotina passou a coletar.</p>`;
+})();
+
+// ---- triagem: cada pregão recente, e o que ele pede de explicação ---------
+// A pergunta que este painel responde não é "que notícia saiu hoje?" — é
+// "quais destes dias sequer precisam de uma notícia para serem explicados?".
+//
+// Ler manchete por manchete procurando causa é como procurar padrão em ruído:
+// sempre se acha. O resíduo de cada pregão, medido contra o desvio-padrão dos
+// resíduos da janela daquele dia, filtra antes: nos dias em que índice e
+// petróleo dão conta do movimento, a manchete é coincidência de data, e a
+// leitura causal ali é um erro de raciocínio, não uma informação a mais.
+(function montaTriagem(){
+  const L = P.SESSOES || null;
+  if (!L || !L.length) {
+    el('triagemPanel').querySelectorAll('.triagem, .nota').forEach(n => n.style.display = 'none');
+    el('triagemEmpty').style.display = 'block';
+    return;
+  }
+  const cls = v => v == null ? '' : (v >= 0 ? 'up' : 'down');
+  const pc  = v => v == null ? '—' : fmtSigned(v) + '%';
+
+  const classifica = z => {
+    const a = z == null ? null : Math.abs(z);
+    if (a == null) return ['beta', 'sem modelo'];
+    if (a < 1) return ['beta', 'beta de mercado'];
+    if (a < 2) return ['misto', 'misto'];
+    return ['idio', 'idiossincrático'];
+  };
+
+  const comManchete = L.filter(s => (s.n || []).length).length;
+  const marcados = L.filter(s => s.z != null && Math.abs(s.z) >= 2);
+  // Sob a hipótese nula, ~4,6% dos dias cruzam 2σ só por acaso. Dizer quantos
+  // são esperados por sorte é o que separa achado de miragem estatística.
+  const esperadosPorAcaso = (L.length * 0.0455);
+
+  el('triagemResumo').innerHTML =
+      `Os últimos <strong>${L.length} pregões</strong>, cada um decomposto com a sua própria janela de 120 dias anteriores. `
+    + `<strong>${marcados.length}</strong> ${marcados.length === 1 ? 'teve' : 'tiveram'} resíduo além de 2σ — `
+    + `e o acaso sozinho produziria cerca de <strong>${fmt1(esperadosPorAcaso)}</strong> num conjunto desse tamanho. `
+    + (marcados.length <= Math.ceil(esperadosPorAcaso)
+        ? `Ou seja: <strong>o que se vê aqui é compatível com ruído puro.</strong> Nenhum dia deste período exige, `
+          + `pela estatística, uma explicação específica da companhia — o que não impede que uma tenha existido, apenas `
+          + `significa que os preços não a denunciam.`
+        : `Isso é mais do que o acaso explicaria, então vale olhar de perto <em>esses</em> dias — e só esses.`)
+    + ` ${comManchete} dos ${L.length} pregões têm manchete guardada no acervo.`;
+
+  el('triagemLista').innerHTML = [...L].reverse().map(s => {
+    const [selo, rotulo] = classifica(s.z);
+    const noticias = s.n || [];
+    const lista = noticias.length
+      ? '<ul>' + noticias.map(i =>
+          `<li><time>${i.h}</time><span><a href="${i.u}" target="_blank" rel="noopener noreferrer">${i.t}</a> <em>· ${i.v}</em></span></li>`
+        ).join('') + '</ul>'
+      : '<div class="sem">sem manchete guardada para este pregão</div>';
+    return `<div class="tri">
+      <div class="tri-cab">
+        <b>${s.d}</b>
+        <span class="var ${cls(s.var)}">${pc(s.var)}</span>
+        <span class="selo ${selo}">${rotulo}</span>
+        <span class="det">resíduo ${pc(s.res)} (${s.z == null ? '—' : NUM2.format(s.z) + 'σ'})`
+        + ` · Ibovespa ${pc(s.ref)} · Brent R$ ${pc(s.com)}`
+        + ` · gap ${pc(s.gap)} / intradia ${pc(s.intra)}`
+        + `${s.vol == null ? '' : ' · giro ' + NUM2.format(s.vol) + '× a mediana'}</span>
+      </div>
+      ${lista}
+    </div>`;
+  }).join('');
+
+  el('triagemRodape').innerHTML =
+      `<strong>Como não usar esta tabela.</strong> A tentação é pegar a manchete de um dia de alta e chamá-la de causa. `
+    + `O selo existe para interromper esse reflexo: onde está escrito <em>beta de mercado</em>, o preço fez o que o `
+    + `Ibovespa e o petróleo mandaram, e a manchete ao lado é apenas o que se publicou naquela data. `
+    + `<br><br><strong>E como usar.</strong> Onde o selo é <em>idiossincrático</em>, sobrou movimento que os dois fatores não `
+    + `explicam — aí a manchete do dia vira hipótese com alguma base, a ser confirmada com o que você sabe da companhia: `
+    + `fato relevante, mudança regulatória, revisão de recomendação, fluxo de índice. Mesmo assim continua sendo hipótese: `
+    + `resíduo grande diz que <em>algo</em> aconteceu, nunca <em>o quê</em>. `
+    + `<br><br><strong>Três limites que valem para toda a tabela.</strong> A PETR4 é componente do Ibovespa, o que superestima `
+    + `a parcela de mercado e deixa o teste conservador. Brent e câmbio negociam além do horário da B3. E o acervo de `
+    + `manchetes começou a ser montado recentemente — pregão sem manchete aqui quase sempre significa "ainda não coletada", `
+    + `não "dia sem notícia".`;
 })();
 
 // Por último de tudo: agora que cada gráfico já foi medido e desenhado com o

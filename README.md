@@ -330,9 +330,21 @@ encontrou ao que já estava guardado, deduplicando por link, e o item já guarda
 prevalece sobre uma reescrita posterior do título. Nos primeiros dias há pouca
 coisa, e isso aparece como está: "sem manchete guardada para este pregão".
 
-A relevância é filtrada mecanicamente: o endpoint devolve muita retrospectiva de
-mercado que apenas cita PBR entre dezenas de tickers. Entra o que menciona a
-empresa no título **ou** o que tem poucos tickers relacionados.
+A relevância é filtrada mecanicamente, em três regras: entra o que menciona a
+empresa no título, **ou** o que tem poucos tickers relacionados *e* usa
+vocabulário do setor no título; e sai, em qualquer caso, o que for compilação de
+mercado enfileirando companhias.
+
+As duas últimas regras vieram dos dados, não de hipótese. Nas primeiras semanas
+de coleta o acervo guardou 7 manchetes em 30 pregões, e 3 delas não eram sobre a
+companhia: duas da KNOT Offshore — armadora que fretea navios à Petrobras, e que
+o Yahoo por isso marca com o ticker PBR — e uma lista de dez recomendações de
+analista que citava "Petrobras" no meio do título. `depura` reaplica a peneira
+ao acervo a cada rodada, para que uma correção no filtro limpe o histórico em
+vez de valer só dali para a frente.
+
+O custo dessa precisão é conhecido: um fato relevante cujo título não use nenhum
+termo do setor nem o nome da empresa não entra. A peneira erra para menos.
 
 `M` omite o primeiro mês da série: não há fechamento anterior que sirva de base,
 e uma base parcial daria um número não comparável com os demais.

@@ -20,11 +20,19 @@ mescla o que encontrou ao que já estava guardado, deduplicando por link. O
 arquivo cresce um pregão por vez; nos primeiros dias há pouca coisa, e isso é
 mostrado como está, sem preencher buraco nenhum.
 
-**Relevância é filtrada mecanicamente.** O endpoint devolve muita matéria de
-mercado amplo que apenas cita PBR entre dezenas de tickers ("Wall Street's top
-analyst calls" com 18 papéis). O filtro exige que o título mencione a empresa
-**ou** que a matéria tenha poucos tickers relacionados — sinal de que é sobre a
-companhia, não uma retrospectiva de mercado.
+**Relevância é filtrada mecanicamente, em três regras.** O endpoint devolve
+muita matéria de mercado amplo que apenas cita PBR entre dezenas de tickers.
+Uma manchete entra se o título mencionar a empresa, **ou** se a matéria tiver
+poucos tickers relacionados *e* o título usar vocabulário do setor. E sai, em
+qualquer caso, se o título for uma compilação de mercado que enfileira
+companhias.
+
+As duas últimas regras nasceram dos dados reais das primeiras semanas de
+coleta, não de hipótese: em 30 pregões o acervo guardou 7 manchetes, das quais
+3 não eram sobre a companhia — duas de uma armadora que fretea navios a ela e
+uma lista de dez recomendações de analista. Ver `PADRAO_RETROSPECTIVA` e
+`PADRAO_SETOR`. `depura` reaplica a peneira ao que já está guardado, para que
+uma correção no filtro limpe o histórico em vez de valer só para a frente.
 """
 
 from __future__ import annotations
@@ -62,15 +70,61 @@ PREGOES_NO_PAYLOAD = 120
 
 PADRAO_EMPRESA = re.compile(r"petrobras|petrobr|\bpbr\b|\bpetr[34]\b", re.IGNORECASE)
 
+# Retrospectiva de mercado que *cita* a empresa no título — o buraco que a
+# peneira anterior deixou passar, encontrado nos dados reais de 28/08/2026:
+# "Here Are Friday's Top Wall Street Analyst Research Calls: Baozun, Commerce
+# Bancshares, Element Solutions, Evolution Petroleum, Petrobras, Rythm
+# Pharmaceuticals, Terawulf, UMB Financial, Workday, and More" — dez
+# companhias enfileiradas, nenhuma delas o assunto. Dois sinais bastam: a
+# enumeração e o vocabulário de compilação. Manchete de verdade raramente
+# carrega quatro vírgulas.
+MAX_VIRGULAS_NO_TITULO = 3
+PADRAO_RETROSPECTIVA = re.compile(
+    r"\band more\b|top .{0,25}\bcalls\b|\bresearch calls\b|\banalyst calls\b"
+    r"|\bmovers\b|\bgainers\b|\blosers\b|\bstocks to watch\b|\bwhat to watch\b",
+    re.IGNORECASE,
+)
+
+# Vocabulário do setor, exigido quando a matéria entra só pelo ticker. Sem
+# isto ela pega carona: o Yahoo marca PBR em notícias da KNOT Offshore
+# (armadora que fretea navios à companhia), e o refinanciamento de um
+# empréstimo dela não diz nada sobre a Petrobras — as duas entraram assim em
+# 26/08/2026. `refinery|refining` em vez de `refin` de propósito: senão
+# "Refinancing" passaria como se fosse refino.
+PADRAO_SETOR = re.compile(
+    r"\boil\b|\bcrude\b|\bbrent\b|\bwti\b|\bopec\b|\bpetroleum\b|\blng\b"
+    r"|natural gas|\brefinery\b|\brefining\b|pre-?salt|\bbrazil|\bbrasil",
+    re.IGNORECASE,
+)
+
+
+def _e_retrospectiva(titulo: str) -> bool:
+    """Compilação de mercado que enfileira companhias, e não matéria sobre uma."""
+    if titulo.count(",") > MAX_VIRGULAS_NO_TITULO:
+        return True
+    return bool(titulo.count(",") >= 2 and PADRAO_RETROSPECTIVA.search(titulo))
+
+
+def _titulo_aceito(titulo: str) -> bool:
+    """O que dá para julgar olhando só o título — que é tudo o que o acervo guarda."""
+    if _e_retrospectiva(titulo):
+        return False
+    return bool(PADRAO_EMPRESA.search(titulo) or PADRAO_SETOR.search(titulo))
+
 
 def _relevante(item: dict) -> bool:
     titulo = item.get("title") or ""
+    if _e_retrospectiva(titulo):
+        return False
     if PADRAO_EMPRESA.search(titulo):
         return True
     tickers = item.get("relatedTickers") or []
     if len(tickers) > MAX_TICKERS_RELACIONADOS:
         return False
-    return bool(TICKERS_DA_EMPRESA.intersection(tickers))
+    if not TICKERS_DA_EMPRESA.intersection(tickers):
+        return False
+    # Entrou só pelo ticker: o título ainda precisa ser do setor para valer.
+    return bool(PADRAO_SETOR.search(titulo))
 
 
 def _normaliza(item: dict) -> dict | None:
@@ -134,15 +188,31 @@ def le_arquivo(caminho: Path) -> list[dict]:
     return dados if isinstance(dados, list) else []
 
 
+def depura(acervo: list[dict]) -> list[dict]:
+    """Reaplica a peneira ao que já está guardado.
+
+    Uma peneira só corrige o futuro; o que passou por ela quando estava frouxa
+    fica no arquivo para sempre, e no painel. Como o acervo guarda o título mas
+    não os tickers, o que dá para reavaliar é o título — o suficiente para tirar
+    as compilações de mercado e as matérias de fornecedor que entraram de
+    carona.
+    """
+    return [item for item in acervo if _titulo_aceito(item.get("titulo") or "")]
+
+
 def mescla(acervo: list[dict], novas: list[dict], limite: int = LIMITE_ARQUIVO) -> list[dict]:
     """Une o que já havia com o que chegou, deduplicando por link.
 
     O item já guardado prevalece: se o Yahoo reescrever um título depois, o
     dashboard continua mostrando o que estava publicado quando o pregão
     aconteceu — que é o que interessa para quem olha a série depois.
+
+    O acervo passa pela peneira atual antes de entrar: assim uma correção no
+    filtro limpa o histórico na rodada seguinte, em vez de valer só daqui para
+    a frente.
     """
     por_link = {item["link"]: item for item in novas}
-    por_link.update({item["link"]: item for item in acervo if item.get("link")})
+    por_link.update({item["link"]: item for item in depura(acervo) if item.get("link")})
     ordenadas = sorted(por_link.values(), key=lambda x: x.get("ts", 0), reverse=True)
     return ordenadas[:limite]
 

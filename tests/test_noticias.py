@@ -42,6 +42,68 @@ def test_relevante_recusa_materia_sem_relacao():
     assert not nt._relevante(item(titulo="Apple ships new phone", tickers=["AAPL"]))
 
 
+# --- os três casos reais que a peneira antiga deixou passar -------------------
+
+ROUNDUP = (
+    "Here Are Friday's Top Wall Street Analyst Research Calls: Baozun, "
+    "Commerce Bancshares, Element Solutions, Evolution Petroleum, Petrobras, "
+    "Rythm Pharmaceuticals, Terawulf, UMB Financial, Workday, and More"
+)
+KNOT_1 = "KNOT Offshore Unit to Acquire Knutsen Canadian Chartering"
+KNOT_2 = (
+    "KNOT Offshore Partners LP Acquires Hedda Knutsen and Completes $225 Million Loan Refinancing"
+)
+
+
+def test_relevante_recusa_compilacao_que_cita_a_empresa_no_titulo():
+    """Publicada em 28/08/2026 e guardada: dez companhias, nenhuma o assunto."""
+    assert not nt._relevante(item(titulo=ROUNDUP, tickers=["PBR"]))
+
+
+def test_relevante_recusa_fornecedor_que_pega_carona_no_ticker():
+    """26/08/2026: o Yahoo marca PBR porque a armadora fretea navios à empresa."""
+    assert not nt._relevante(item(titulo=KNOT_1, tickers=["KNOP", "PBR"]))
+    assert not nt._relevante(item(titulo=KNOT_2, tickers=["KNOP", "PBR"]))
+
+
+def test_refinanciamento_nao_conta_como_refino():
+    """`refin` casaria com "Refinancing"; o padrão pede refinery/refining."""
+    assert not nt.PADRAO_SETOR.search(KNOT_2)
+    assert nt.PADRAO_SETOR.search("Shell restarts Bukom refining unit")
+
+
+def test_relevante_mantem_as_manchetes_boas_do_mesmo_acervo():
+    """As quatro que sobreviveram têm de continuar entrando."""
+    for titulo in (
+        "Petrobras and Pemex Explore Mexico's Deepwater Pre-Salt Potential",
+        "PBR Q2 Earnings Beat on Record Output, but Can the Gains Persist?",
+        "Petrobras Eyes LNG Exports to Asia as Gas Demand Surges",
+        "Oil Stocks Hit New Highs After U.S. Resumes Strikes in Strait of Hormuz",
+    ):
+        assert nt._relevante(item(titulo=titulo, tickers=["PBR", "XOM"])), titulo
+
+
+def test_retrospectiva_nao_derruba_titulo_com_poucas_virgulas():
+    curto = "Petrobras raises diesel prices, first hike since March"
+    assert not nt._e_retrospectiva(curto)
+    assert nt._relevante(item(titulo=curto))
+
+
+def test_depura_limpa_o_que_a_peneira_antiga_guardou():
+    acervo = [
+        nt._normaliza(item(titulo=ROUNDUP, link="https://ex.com/roundup")),
+        nt._normaliza(item(titulo=KNOT_1, link="https://ex.com/knot")),
+        nt._normaliza(item(titulo="Petrobras Eyes LNG Exports to Asia", link="https://ex.com/lng")),
+    ]
+    assert [x["link"] for x in nt.depura(acervo)] == ["https://ex.com/lng"]
+
+
+def test_mescla_aplica_a_peneira_ao_acervo_antigo():
+    antigo = [nt._normaliza(item(titulo=ROUNDUP, link="https://ex.com/roundup"))]
+    novo = [nt._normaliza(item(titulo="Petrobras cuts capex guidance", link="https://ex.com/2"))]
+    assert [x["link"] for x in nt.mescla(antigo, novo)] == ["https://ex.com/2"]
+
+
 def test_normaliza_carimba_a_data_no_fuso_da_b3():
     saida = nt._normaliza(item())
     assert saida["d"] == "2026-08-31"
@@ -62,12 +124,14 @@ def test_normaliza_recusa_item_incompleto():
 
 
 def test_mescla_deduplica_por_link():
-    antigo = [nt._normaliza(item(titulo="Título original", link="https://ex.com/1"))]
-    novo = [nt._normaliza(item(titulo="Título reescrito", link="https://ex.com/1"))]
+    # os dois títulos passam pela peneira: o que se testa aqui é a dedup, e o
+    # acervo agora é depurado antes de mesclar (ver `depura`)
+    antigo = [nt._normaliza(item(titulo="Petrobras: título original", link="https://ex.com/1"))]
+    novo = [nt._normaliza(item(titulo="Petrobras: título reescrito", link="https://ex.com/1"))]
     unido = nt.mescla(antigo, novo)
     assert len(unido) == 1
     # o que já estava guardado prevalece
-    assert unido[0]["titulo"] == "Título original"
+    assert unido[0]["titulo"] == "Petrobras: título original"
 
 
 def test_mescla_acumula_historico():

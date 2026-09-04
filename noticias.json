@@ -1,5 +1,13 @@
 [
  {
+  "d": "2026-09-04",
+  "hora": "10:16",
+  "titulo": "Shell Partners With BP to Expand Deepwater Footprint in Brazil & GoA",
+  "veiculo": "Zacks",
+  "link": "https://finance.yahoo.com/energy/articles/shell-partners-bp-expand-deepwater-131600397.html",
+  "ts": 1788527760
+ },
+ {
   "d": "2026-09-01",
   "hora": "18:17",
   "titulo": "Oil Stocks Hit New Highs After U.S. Resumes Strikes in Strait of Hormuz",
@@ -24,36 +32,12 @@
   "ts": 1788024685
  },
  {
-  "d": "2026-08-28",
-  "hora": "08:50",
-  "titulo": "Here Are Friday’s Top Wall Street Analyst Research Calls: Baozun, Commerce Bancshares, Element Solutions, Evolution Petroleum, Petrobras, Rythm Pharmaceuticals, Terawulf, UMB Financial, Workday, and More",
-  "veiculo": "24/7 Wall St.",
-  "link": "https://finance.yahoo.com/m/ebec830a-8a18-381f-9518-ac97b681342e/here-are-friday%E2%80%99s-top-wall.html",
-  "ts": 1787917803
- },
- {
   "d": "2026-08-27",
   "hora": "12:54",
   "titulo": "PBR Q2 Earnings Beat on Record Output, but Can the Gains Persist?",
   "veiculo": "Zacks",
   "link": "https://finance.yahoo.com/energy/articles/pbr-q2-earnings-beat-record-155400174.html",
   "ts": 1787846040
- },
- {
-  "d": "2026-08-26",
-  "hora": "10:43",
-  "titulo": "KNOT Offshore Unit to Acquire Knutsen Canadian Chartering",
-  "veiculo": "MT Newswires",
-  "link": "https://finance.yahoo.com/markets/stocks/articles/knot-offshore-unit-acquire-knutsen-134300881.html",
-  "ts": 1787751780
- },
- {
-  "d": "2026-08-26",
-  "hora": "10:00",
-  "titulo": "KNOT Offshore Partners LP Acquires Hedda Knutsen and Completes $225 Million Loan Refinancing",
-  "veiculo": "Business Wire",
-  "link": "https://finance.yahoo.com/markets/stocks/articles/knot-offshore-partners-lp-acquires-130000018.html",
-  "ts": 1787749200
  },
  {
   "d": "2026-08-25",

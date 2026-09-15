@@ -22,11 +22,18 @@ A coleta e a validação de atualidade ficam em ``yahoo_chart.py``. Este módulo
 não estima nem completa preço nenhum. Se a fonte deve um pregão mas a coleta
 ainda assim avança em relação ao publicado, o avanço é publicado com a pendência
 sinalizada; se não avança nada, o job falha e o data.js fica como está.
+
+**A rotina só publica com o pregão encerrado.** Com a bolsa operando — regular
+ou after-market dentro da margem — ela sai por ``SAIDA_PREGAO_EM_CURSO`` sem
+escrever nada. Isso não é redundância do cron: o horário do disparo não está sob
+o nosso controle (fila do Actions, disparo manual), e publicar no meio do dia
+significaria mandar por e-mail um "fechamento" que ainda vai mudar.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import statistics
 import sys
 from datetime import UTC, date, datetime, timedelta
@@ -47,6 +54,18 @@ BASE = Path(__file__).resolve().parents[1]
 OUT = BASE / "data.js"
 ARQUIVO_NOTICIAS = BASE / "noticias.json"
 PREFIXO = "window.PETR4 = "
+
+# Escape da trava de pregão em curso, para rodar à mão no meio do dia sabendo o
+# que se está fazendo. O padrão é não rodar: a variável tem de ser posta de
+# propósito, e a rotina diz no log que foi por ela que publicou.
+VAR_FORCAR = "FORCAR_PREGAO_ABERTO"
+VALORES_VERDADEIROS = {"1", "true", "sim", "yes", "on"}
+
+# Código de saída da desistência deliberada: a rotina não fez nada porque o dia
+# ainda não acabou. Não é sucesso (nada foi publicado) nem falha (nada quebrou),
+# e o workflow o trata à parte — senão a desistência dispararia o e-mail de erro
+# todo dia, que é a forma mais rápida de treinar alguém a ignorar o alarme.
+SAIDA_PREGAO_EM_CURSO = 9
 
 SYMBOL = "PETR4.SA"
 # Índice de referência para a comparação relativa do dashboard. É opcional: se
@@ -642,6 +661,11 @@ def monta_payload(
     return payload
 
 
+def trava_dispensada() -> bool:
+    """Alguém pediu explicitamente para rodar com o pregão em curso."""
+    return (os.environ.get(VAR_FORCAR) or "").strip().lower() in VALORES_VERDADEIROS
+
+
 def main() -> int:
     try:
         linhas, proventos, estado, avisos = busca_serie_diaria(SYMBOL, PERIOD1)
@@ -654,6 +678,23 @@ def main() -> int:
 
     for aviso in avisos:
         print(f"[update] aviso: {aviso}")
+
+    # A rotina só publica com o dia encerrado. O cron pede isso; esta trava é
+    # que garante, porque o horário do disparo não está sob o nosso controle: a
+    # fila do GitHub Actions já atrasou rodada em horas, e um disparo manual
+    # cai a qualquer momento. A checagem vem antes de qualquer escrita —
+    # noticias.json inclusive — para que desistir não deixe rastro.
+    if estado.get("operando"):
+        if not trava_dispensada():
+            print(
+                "[update] a bolsa ainda está operando (pregão regular ou after-market). "
+                "A rotina só publica com o dia encerrado; nada foi escrito."
+            )
+            return SAIDA_PREGAO_EM_CURSO
+        print(
+            f"[update] aviso: pregão em curso, mas {VAR_FORCAR} foi definida — "
+            "publicando mesmo assim. A barra parcial do dia continua descartada."
+        )
 
     anterior = le_payload_atual(OUT)
     publicado = (anterior or {}).get("stats", {}).get("last_date", "")

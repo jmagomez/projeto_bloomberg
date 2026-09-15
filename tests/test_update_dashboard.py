@@ -483,3 +483,57 @@ def test_manchetes_sao_anexadas_a_cada_pregao_da_triagem():
     assert por_data[alvo]["n"] == manchetes[alvo]
     outro = payload["SESSOES"][0]["d"]
     assert por_data[outro]["n"] == []  # dia sem manchete guardada vem vazio, não ausente
+
+
+# --- a rotina só publica com o dia encerrado ---------------------------------
+
+
+def _coleta_falsa(operando):
+    """Substitui a coleta de rede por uma resposta pronta, com o estado pedido."""
+
+    def falsa(symbol, period1):
+        return (
+            [dict(p) for p in SERIE],
+            {},
+            {"ultimo_pregao": "2026-08-21", "aberto": operando, "operando": operando},
+            [],
+        )
+
+    return falsa
+
+
+def test_main_desiste_com_a_bolsa_operando(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(ud, "busca_serie_diaria", _coleta_falsa(True))
+    monkeypatch.setattr(ud, "OUT", tmp_path / "data.js")
+    monkeypatch.setattr(ud, "ARQUIVO_NOTICIAS", tmp_path / "noticias.json")
+    monkeypatch.delenv(ud.VAR_FORCAR, raising=False)
+
+    assert ud.main() == ud.SAIDA_PREGAO_EM_CURSO
+    # Nada escrito: nem o data.js, nem o acervo de manchetes.
+    assert not (tmp_path / "data.js").exists()
+    assert not (tmp_path / "noticias.json").exists()
+    assert "nada foi escrito" in capsys.readouterr().out.lower()
+
+
+def test_main_respeita_o_escape_explicito(monkeypatch, tmp_path):
+    """Com a variável posta, publica — e diz no log que foi por causa dela."""
+    monkeypatch.setattr(ud, "busca_serie_diaria", _coleta_falsa(True))
+    monkeypatch.setattr(ud, "busca_fechamentos", lambda *a, **k: {})
+    monkeypatch.setattr(ud.nt, "busca_manchetes", lambda: [])
+    monkeypatch.setattr(ud, "OUT", tmp_path / "data.js")
+    monkeypatch.setattr(ud, "ARQUIVO_NOTICIAS", tmp_path / "noticias.json")
+    monkeypatch.setenv(ud.VAR_FORCAR, "1")
+
+    assert ud.main() == 0
+    assert (tmp_path / "data.js").exists()
+
+
+def test_trava_dispensada_so_com_valor_afirmativo(monkeypatch):
+    for valor in ("1", "true", "TRUE", "sim", "yes", "on"):
+        monkeypatch.setenv(ud.VAR_FORCAR, valor)
+        assert ud.trava_dispensada() is True
+    for valor in ("", "0", "false", "nao", "talvez"):
+        monkeypatch.setenv(ud.VAR_FORCAR, valor)
+        assert ud.trava_dispensada() is False
+    monkeypatch.delenv(ud.VAR_FORCAR, raising=False)
+    assert ud.trava_dispensada() is False

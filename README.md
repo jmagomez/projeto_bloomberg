@@ -38,15 +38,39 @@ calcula os indicadores e escreve `data.js`. O GitHub Actions roda a rotina
 **todo dia útil às 18:47 de Brasília**, depois do fechamento e do after-market
 da B3, commita o `data.js` e envia um e-mail com o resumo do pregão.
 
-Há uma segunda janela, de **repescagem às 08:13 de Brasília** (terça a sábado).
-Se a rodada da véspera já publicou, ela não encontra mudança em `data.js` e
-termina sem commitar nada; se a fonte estava incompleta à noite, o pregão entra
-na manhã seguinte em vez de esperar o próximo dia útil.
+Há uma **repescagem às 20:47 do mesmo dia** (segunda a sexta) e uma **última
+rede no sábado às 08:13**, para o pregão de sexta. Se a rodada anterior já
+publicou, a seguinte não encontra mudança em `data.js` e termina sem commitar.
 
 Os minutos são deliberadamente estranhos. `:00` e `:30` são os horários mais
 disputados na fila do GitHub Actions e o enfileiramento aqui chegou a atrasar a
 rodada em quase seis horas — o run agendado para 21:30 UTC só começou às 03:13
 UTC do dia seguinte.
+
+### A rotina só roda com a bolsa fechada
+
+Toda rodada agendada cai fora do pregão, e isso é verificável na própria grade:
+a B3 negocia das 13:00 às 20:00 UTC, e os três horários (21:47, 23:47 e 11:13
+UTC de sábado) estão fora dessa janela com folga de horas — de propósito, para
+que nem o atraso de enfileiramento nem um erro no campo de dia da semana
+coloquem uma rodada dentro da sessão.
+
+Mas horário de cron é pedido, não garantia. A garantia é uma trava no código:
+`pregao_em_curso` lê `currentTradingPeriod` da própria resposta da fonte e a
+rotina sai por `SAIDA_PREGAO_EM_CURSO` (9) **antes de escrever qualquer coisa**
+se o dia ainda estiver em movimento. A margem de uma hora depois do fim do
+regular cobre o after-market da B3 (até 17:55), que `currentTradingPeriod` não
+enxerga: às 17:30 a fonte já diz "fechado" e o dia ainda muda.
+
+A saída 9 não é falha. O workflow a trata à parte: pula o commit e os e-mails e
+termina verde. Uma desistência esperada que disparasse alerta todo dia seria a
+forma mais rápida de treinar alguém a ignorar o alarme.
+
+Para publicar no meio do dia sabendo o que se está fazendo, o disparo manual na
+aba Actions tem a opção **Publicar mesmo com a bolsa operando** (variável
+`FORCAR_PREGAO_ABERTO`). Mesmo forçada, a barra parcial do dia continua sendo
+descartada — forçar muda quando a rotina publica, nunca o que ela aceita como
+dado.
 
 ### Por que a rotina se recusa a publicar dado defasado
 
@@ -92,7 +116,7 @@ Três travas, em camadas independentes:
 2. A barra descartada **não é reinventada**. O `meta` traz
    `regularMarketDayHigh/Low/Volume` mas **não** traz a abertura — não há de
    onde tirar esse campo sem inventá-lo. A série fica sem aquele pregão, a
-   pendência é sinalizada, e a repescagem da manhã pega a barra consolidada.
+   pendência é sinalizada, e a repescagem seguinte pega a barra consolidada.
 3. `confere_precos_possiveis()` reexamina o **payload pronto** e recusa qualquer
    preço ≤ 0 em `stats`, `D` ou `W`. Por olhar o resultado e não o caminho, essa
    trava vale também para código que venha a ser acrescentado depois.
@@ -160,7 +184,9 @@ python scripts/update_dashboard.py
 
 Códigos de saída: `0` sucesso (inclusive publicação parcial com pendência
 sinalizada) · `2` a fonte deve um pregão e a coleta não avança além do que já
-está publicado — nada foi escrito · `3` fonte indisponível.
+está publicado — nada foi escrito · `3` fonte indisponível · `9` a bolsa ainda
+estava operando e a rotina desistiu sem escrever nada (rodar de novo depois do
+fechamento, ou `FORCAR_PREGAO_ABERTO=1` para publicar mesmo assim).
 
 ### Pipeline ETL (Alpha Vantage)
 

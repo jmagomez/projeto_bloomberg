@@ -23,6 +23,10 @@ As defesas, nesta ordem:
    entregue) e **sinaliza** a pendência em vez de derrubar o job.
 3. Quem decide publicar é ``update_dashboard``: avanço parcial sinalizado vale
    mais que dashboard parado; sem avanço nenhum, aí sim falha.
+4. ``pregao_em_curso`` responde se o dia ainda está em movimento — regular
+   correndo ou after-market dentro da margem. A rotina só publica com o dia
+   encerrado, e a trava vale para qualquer horário de disparo: o cron pede, ela
+   é que garante.
 
 Nada é estimado, interpolado ou completado: todo número vem da resposta da fonte.
 Nenhum calendário de feriados é necessário — ``regularMarketTime`` já responde
@@ -55,6 +59,14 @@ TIMEOUT = 60
 # high, low e close separadamente, então uma barra legítima pode sair alguns
 # centésimos fora da faixa. 0,5% barra lixo sem derrubar arredondamento.
 TOLERANCIA_OHLC = 0.005
+
+# Folga depois do fim do pregão regular antes de considerar o dia encerrado.
+# A B3 fecha o regular às 17:00 e o after-market vai até 17:55; uma rodada que
+# caísse nesse intervalo veria `currentTradingPeriod.regular` já encerrado e se
+# julgaria em terreno firme, com o dia ainda em movimento. Uma hora cobre o
+# after com folga. A margem vem em segundos porque é assim que a fonte datilha
+# tudo — nenhum calendário de feriado é necessário, o período vem na resposta.
+MARGEM_POS_FECHAMENTO = 3600
 
 
 class ErroTransitorio(RuntimeError):
@@ -168,8 +180,8 @@ def extrai_pregoes(res: dict) -> list[dict]:
     ``fora_faixa`` para o log e é publicada como veio. Ver ``barra_coerente``.
 
     Barra descartada não é reinventada: a série simplesmente não alcança aquele
-    pregão, ``valida_atualidade`` marca a pendência, e a repescagem da manhã
-    seguinte pega a barra já consolidada. É o que se quer — publicar um pregão
+    pregão, ``valida_atualidade`` marca a pendência, e a repescagem seguinte
+    pega a barra já consolidada. É o que se quer — publicar um pregão
     com número inventado seria pior do que publicá-lo algumas horas depois.
     """
     meta = res.get("meta") or {}
@@ -279,7 +291,7 @@ def recupera_fechamento_do_meta(res: dict, linhas: list[dict]) -> tuple[list[dic
         # Abertura, máxima ou mínima ausentes ou impossíveis. O ``meta`` traz
         # regularMarketDayHigh/Low/Volume, mas **não** traz a abertura — não há
         # de onde tirar esse campo sem inventá-lo, então a barra não é
-        # recomposta. Fica pendente e a repescagem da manhã resolve.
+        # recomposta. Fica pendente e a repescagem seguinte resolve.
         return linhas, None
 
     fechamento = preco_possivel(preco)
@@ -302,13 +314,34 @@ def recupera_fechamento_do_meta(res: dict, linhas: list[dict]) -> tuple[list[dic
     return linhas, data_meta
 
 
+def pregao_em_curso(res: dict, margem: int = MARGEM_POS_FECHAMENTO) -> bool:
+    """O dia ainda está em movimento — contada a margem do after-market.
+
+    Diferente de ``aberto``, que responde "o pregão regular está correndo agora"
+    e serve para descartar a barra parcial. Esta responde a outra pergunta: "já
+    dá para tratar o dia como encerrado?". A resposta é não enquanto o regular
+    corre **e** durante a margem seguinte, quando o after ainda negocia.
+
+    Sem ``currentTradingPeriod`` na resposta não há o que afirmar, e a função
+    devolve ``False``: a trava não pode parar a rotina por falta de informação —
+    quem valida o dado é ``valida_atualidade``, que continua fazendo o seu.
+    """
+    periodo = ((res.get("meta") or {}).get("currentTradingPeriod") or {}).get("regular") or {}
+    inicio, fim = periodo.get("start"), periodo.get("end")
+    if not inicio or not fim:
+        return False
+    agora = int(datetime.now(UTC).timestamp())
+    return int(inicio) <= agora < int(fim) + margem
+
+
 def estado_do_mercado(res: dict) -> dict:
     """Lê da resposta o que a fonte diz sobre o último pregão.
 
-    Retorna ``{"ultimo_pregao": "YYYY-MM-DD" | None, "aberto": bool}``.
+    Retorna ``{"ultimo_pregao": ..., "aberto": bool, "operando": bool}``.
     ``ultimo_pregao`` é ``None`` quando a resposta não traz
     ``regularMarketTime`` — nesse caso não há como validar e a rotina apenas
-    avisa, em vez de falhar por falta de informação.
+    avisa, em vez de falhar por falta de informação. ``operando`` é ``aberto``
+    esticado pela margem do after-market; ver ``pregao_em_curso``.
     """
     meta = res.get("meta") or {}
     offset = int(meta.get("gmtoffset") or 0)
@@ -320,7 +353,7 @@ def estado_do_mercado(res: dict) -> dict:
     aberto = bool(inicio and fim and int(inicio) <= agora < int(fim))
 
     ultimo = data_da_bolsa(int(market_time), offset) if market_time else None
-    return {"ultimo_pregao": ultimo, "aberto": aberto}
+    return {"ultimo_pregao": ultimo, "aberto": aberto, "operando": pregao_em_curso(res)}
 
 
 def _mescla(base: list[dict], extra: list[dict]) -> list[dict]:
@@ -353,6 +386,7 @@ def _uma_tentativa(
     serie_longa: list[dict] = []
     proventos: dict[str, float] = {}
     estado_melhor: dict | None = None
+    operando = False
     falhas: list[str] = []
 
     # Série completa: o primeiro host que responder resolve.
@@ -367,6 +401,7 @@ def _uma_tentativa(
             recomposicoes.add(recomposta)
         proventos = extrai_proventos(res)
         estado_melhor = estado_do_mercado(res)
+        operando = estado_melhor["operando"]
         break
 
     if not serie_longa:
@@ -387,6 +422,7 @@ def _uma_tentativa(
         serie_longa = _mescla(serie_longa, curta)
         proventos.update(extrai_proventos(res))
         estado = estado_do_mercado(res)
+        operando = operando or estado["operando"]
         if estado["ultimo_pregao"] and (
             estado_melhor is None
             or not estado_melhor["ultimo_pregao"]
@@ -394,7 +430,12 @@ def _uma_tentativa(
         ):
             estado_melhor = estado
 
-    estado = estado_melhor or {"ultimo_pregao": None, "aberto": False}
+    estado = estado_melhor or {"ultimo_pregao": None, "aberto": False, "operando": False}
+    # A trava não pode depender de `estado_melhor`, que só é escolhido entre as
+    # respostas que trouxeram `regularMarketTime`. Se *qualquer* resposta disse
+    # que o dia está em movimento, está em movimento: basta uma para não
+    # publicar, e nenhuma para publicar.
+    estado["operando"] = operando or estado["operando"]
     if recomposicoes:
         alvo = max(recomposicoes)
         if any(linha["d"] == alvo for linha in serie_longa):

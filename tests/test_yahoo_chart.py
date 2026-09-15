@@ -290,3 +290,67 @@ def test_barra_boa_ao_lado_de_barra_zerada_sobrevive():
     res = resposta([TS_QUI_20, TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
     res["indicators"]["quote"][0]["low"][0] = 0
     assert [linha["d"] for linha in yc.extrai_pregoes(res)] == ["2026-08-21"]
+
+
+# --- a trava de "só depois do fechamento" ------------------------------------
+
+
+def _resposta_do_dia():
+    return resposta([TS_QUI_20, TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+
+
+def test_pregao_em_curso_no_meio_da_sessao(monkeypatch):
+    monkeypatch.setattr(yc, "datetime", _relogio_fixo(TS_SEX_21 + 3 * 3600))  # 13:00 BRT
+    assert yc.pregao_em_curso(_resposta_do_dia()) is True
+
+
+def test_pregao_em_curso_durante_o_after_market(monkeypatch):
+    """17:30 BRT: o regular fechou, o after não. É o caso que `aberto` não pega."""
+    monkeypatch.setattr(yc, "datetime", _relogio_fixo(FIM_PREGAO_SEX + 1800))
+    res = _resposta_do_dia()
+    assert yc.estado_do_mercado(res)["aberto"] is False
+    assert yc.pregao_em_curso(res) is True
+
+
+def test_dia_encerrado_depois_da_margem(monkeypatch):
+    """18:05 BRT: passou a margem de uma hora. O dia pode ser publicado."""
+    monkeypatch.setattr(
+        yc, "datetime", _relogio_fixo(FIM_PREGAO_SEX + yc.MARGEM_POS_FECHAMENTO + 300)
+    )
+    res = _resposta_do_dia()
+    assert yc.pregao_em_curso(res) is False
+    assert yc.estado_do_mercado(res)["operando"] is False
+
+
+def test_antes_da_abertura_nao_e_pregao_em_curso(monkeypatch):
+    """09:00 BRT: a bolsa abre às 10:00. Cedo não é 'em curso' — é véspera."""
+    monkeypatch.setattr(yc, "datetime", _relogio_fixo(TS_SEX_21 - 3600))
+    assert yc.pregao_em_curso(_resposta_do_dia()) is False
+
+
+def test_sem_periodo_de_negociacao_a_trava_nao_bloqueia():
+    """Falta de informação não pode parar a rotina; quem valida o dado é outro."""
+    res = _resposta_do_dia()
+    res["meta"]["currentTradingPeriod"] = {}
+    assert yc.pregao_em_curso(res) is False
+    assert yc.estado_do_mercado(res)["operando"] is False
+
+
+def test_margem_configuravel(monkeypatch):
+    """Com margem zero, o after-market deixa de contar — o padrão é que decide."""
+    monkeypatch.setattr(yc, "datetime", _relogio_fixo(FIM_PREGAO_SEX + 1800))
+    assert yc.pregao_em_curso(_resposta_do_dia(), margem=0) is False
+
+
+def test_trava_sobrevive_a_resposta_sem_regular_market_time(monkeypatch):
+    """Sem `regularMarketTime` o estado é descartado — a trava não pode ser.
+
+    `estado_melhor` só é escolhido entre respostas que trouxeram o campo. Se a
+    única resposta que disse "o dia está em movimento" for justamente uma sem
+    ele, a rotina não pode acabar publicando no meio do pregão.
+    """
+    monkeypatch.setattr(yc, "datetime", _relogio_fixo(TS_SEX_21 + 3 * 3600))
+    res = resposta([TS_QUI_20, TS_SEX_21], None, TS_SEX_21, FIM_PREGAO_SEX)
+    estado = yc.estado_do_mercado(res)
+    assert estado["ultimo_pregao"] is None  # seria descartado por busca_serie_diaria
+    assert estado["operando"] is True  # mas a trava enxerga o pregão correndo

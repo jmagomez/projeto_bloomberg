@@ -1,5 +1,37 @@
 [
  {
+  "d": "2026-09-15",
+  "hora": "18:50",
+  "titulo": "Petrobras (PBR) Advances While Market Declines: Some Information for Investors",
+  "veiculo": "Zacks",
+  "link": "https://finance.yahoo.com/markets/stocks/articles/petrobras-pbr-advances-while-market-215005345.html",
+  "ts": 1789509005
+ },
+ {
+  "d": "2026-09-15",
+  "hora": "10:40",
+  "titulo": "Petrobras Receives $434 Million in New Diesel Subsidy Payments",
+  "veiculo": "Zacks",
+  "link": "https://finance.yahoo.com/energy/articles/petrobras-receives-434-million-diesel-134000532.html",
+  "ts": 1789479600
+ },
+ {
+  "d": "2026-09-15",
+  "hora": "05:21",
+  "titulo": "Sempra's LNG Unit Signs 20-Year LNG Supply Deal With Petrobras",
+  "veiculo": "MT Newswires",
+  "link": "https://finance.yahoo.com/energy/articles/sempra-apos-lng-unit-signs-082149225.html",
+  "ts": 1789460509
+ },
+ {
+  "d": "2026-09-14",
+  "hora": "21:33",
+  "titulo": "Sempra Locks In Petrobras for 20-Year U.S. LNG Supply Deal",
+  "veiculo": "Oilprice.com",
+  "link": "https://finance.yahoo.com/energy/articles/sempra-locks-petrobras-20-u-003328108.html",
+  "ts": 1789432408
+ },
+ {
   "d": "2026-09-14",
   "hora": "20:00",
   "titulo": "Sempra Infrastructure Announces Long-Term LNG Supply Agreement with Petrobras",

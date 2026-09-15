@@ -1,19 +1,31 @@
 name: Atualiza dashboard PETR4
 
+# Toda rodada agendada cai com a bolsa fechada. A B3 negocia das 10:00 às 17:00
+# em Brasília (13:00–20:00 UTC), com after-market até 17:55. O minuto fora de
+# :00 e :30 é de propósito: são os mais disputados na fila do GitHub Actions, e
+# aqui o atraso de enfileiramento já chegou a horas — por isso nenhum horário
+# aqui pode estar a menos de algumas horas da abertura seguinte.
 on:
   schedule:
-    # 21:47 UTC de segunda a sexta = 18:47 em Brasília (BRT, UTC-3), depois do
-    # fechamento do pregão (17:00) e do after-market da B3 (até 17:55).
-    # Rodar todo pregão — e não só aos sábados — significa que uma resposta
-    # incompleta da fonte atrasa o dashboard em um dia, não em uma semana.
-    # O minuto está fora de :00 e :30 de propósito: são os mais disputados na
-    # fila do GitHub Actions, e aqui o atraso de enfileiramento chegou a horas.
+    # 21:47 UTC = 18:47 em Brasília, de segunda a sexta. A rodada principal:
+    # pregão encerrado, after-market encerrado, dia consolidado.
     - cron: "47 21 * * 1-5"
-    # Repescagem às 11:13 UTC = 08:13 em Brasília, de terça a sábado (o sábado
-    # cobre o pregão de sexta). Quando a rodada da véspera já publicou, esta
-    # não encontra mudança em data.js e termina sem commitar nada.
-    - cron: "13 11 * * 2-6"
-  workflow_dispatch: {}     # permite rodar manualmente na aba Actions
+    # 23:47 UTC = 20:47 em Brasília, do mesmo dia. Repescagem para quando a
+    # fonte ainda não tinha o pregão às 18:47 — acontece. Se a primeira rodada
+    # publicou, esta não encontra mudança em data.js e termina sem commitar.
+    - cron: "47 23 * * 1-5"
+    # 11:13 UTC de sábado = 08:13 em Brasília, com a bolsa fechada o dia
+    # inteiro. Última rede para o pregão de sexta, se as duas de sexta falharem.
+    # Os três horários ficam fora da janela 13:00–20:00 UTC de propósito: assim
+    # um erro no campo de dia da semana não coloca rodada nenhuma dentro do
+    # pregão.
+    - cron: "13 11 * * 6"
+  workflow_dispatch:
+    inputs:
+      forcar:
+        description: "Publicar mesmo com a bolsa operando (o dia ainda vai mudar)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -51,12 +63,31 @@ jobs:
 
       # A rotina do dashboard depende apenas de `requests`. O pipeline ETL da
       # Alpha Vantage (pandas, dotenv) não roda aqui.
+      #
+      # Saída 9 é a desistência deliberada: a bolsa ainda estava operando e nada
+      # foi escrito. Não é falha — o job segue verde e os passos seguintes são
+      # pulados, para que a desistência não vire e-mail de erro nem e-mail de
+      # fechamento repetido. Qualquer outro código diferente de zero continua
+      # derrubando o job.
       - name: Atualiza dados
+        id: dados
+        env:
+          FORCAR_PREGAO_ABERTO: ${{ inputs.forcar && '1' || '' }}
         run: |
           pip install -r requirements-dashboard.txt
+          set +e
           python scripts/update_dashboard.py
+          codigo=$?
+          set -e
+          if [ "$codigo" -eq 9 ]; then
+            echo "pulou=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Pregão em curso — rodada encerrada sem publicar nada."
+            exit 0
+          fi
+          exit "$codigo"
 
       - name: Commita se houver mudança
+        if: steps.dados.outputs.pulou != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -73,10 +104,11 @@ jobs:
 
       - name: Extrai resumo para o e-mail
         id: resumo
+        if: steps.dados.outputs.pulou != 'true'
         run: python scripts/emit_summary.py >> "$GITHUB_OUTPUT"
 
       - name: Envia e-mail com o dashboard
-        if: success() && steps.mail.outputs.ok == 'true'
+        if: success() && steps.mail.outputs.ok == 'true' && steps.dados.outputs.pulou != 'true'
         uses: dawidd6/action-send-mail@v18
         with:
           server_address: smtp.gmail.com

@@ -1,5 +1,29 @@
 [
  {
+  "d": "2026-09-16",
+  "hora": "11:55",
+  "titulo": "Vallourec Pipes Up With Another Brazilian Win",
+  "veiculo": "Moby",
+  "link": "https://finance.yahoo.com/energy/articles/vallourec-pipes-another-brazilian-win-145513408.html",
+  "ts": 1789570513
+ },
+ {
+  "d": "2026-09-16",
+  "hora": "10:12",
+  "titulo": "Sempra (SRE) Stock May Be About Right After Fresh LNG Deal",
+  "veiculo": "Simply Wall St.",
+  "link": "https://finance.yahoo.com/markets/stocks/articles/sempra-sre-stock-may-fresh-131207179.html",
+  "ts": 1789564327
+ },
+ {
+  "d": "2026-09-16",
+  "hora": "02:00",
+  "titulo": "VALLOUREC SECURES A MAJOR CONTRACT WITH SUBSEA7 FOR PETROBRAS’ SEPIA 2 OFFSHORE PROJECT IN BRAZIL",
+  "veiculo": "GlobeNewswire",
+  "link": "https://finance.yahoo.com/energy/articles/vallourec-secures-major-contract-subsea7-050000555.html",
+  "ts": 1789534800
+ },
+ {
   "d": "2026-09-15",
   "hora": "18:50",
   "titulo": "Petrobras (PBR) Advances While Market Declines: Some Information for Investors",

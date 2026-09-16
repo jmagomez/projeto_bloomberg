@@ -109,7 +109,7 @@ jobs:
 
       - name: Envia e-mail com o dashboard
         if: success() && steps.mail.outputs.ok == 'true' && steps.dados.outputs.pulou != 'true'
-        uses: dawidd6/action-send-mail@v18
+        uses: dawidd6/action-send-mail@v21
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -141,7 +141,7 @@ jobs:
 
       - name: Notifica falha por e-mail
         if: failure() && steps.mail.outputs.ok == 'true'
-        uses: dawidd6/action-send-mail@v18
+        uses: dawidd6/action-send-mail@v21
         with:
           server_address: smtp.gmail.com
           server_port: 465

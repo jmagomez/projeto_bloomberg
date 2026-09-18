@@ -1,5 +1,37 @@
 [
  {
+  "d": "2026-09-18",
+  "hora": "08:15",
+  "titulo": "Petrobras Enters 8 Offshore Exploration Blocks in Cote D'Ivoire",
+  "veiculo": "MT Newswires",
+  "link": "https://finance.yahoo.com/energy/articles/petrobras-enters-8-offshore-exploration-111517236.html",
+  "ts": 1789730117
+ },
+ {
+  "d": "2026-09-18",
+  "hora": "07:01",
+  "titulo": "Paratus Energy: Update regarding the Petrobras Tender process",
+  "veiculo": "PR Newswire",
+  "link": "https://finance.yahoo.com/energy/articles/paratus-energy-regarding-petrobras-tender-100100337.html",
+  "ts": 1789725660
+ },
+ {
+  "d": "2026-09-18",
+  "hora": "06:58",
+  "titulo": "Paratus Energy: Update regarding the Petrobras Tender process",
+  "veiculo": "PR Newswire",
+  "link": "https://finance.yahoo.com/energy/articles/paratus-energy-regarding-petrobras-tender-095800540.html",
+  "ts": 1789725480
+ },
+ {
+  "d": "2026-09-18",
+  "hora": "04:59",
+  "titulo": "Petrobras secures eight offshore PSCs in Côte d’Ivoire",
+  "veiculo": "Offshore Technology",
+  "link": "https://finance.yahoo.com/energy/articles/petrobras-secures-eight-offshore-pscs-075901625.html",
+  "ts": 1789718341
+ },
+ {
   "d": "2026-09-17",
   "hora": "08:26",
   "titulo": "Petrobras, Computer Modelling Reach Five-Year Renewal for Software Licensing, Support Agreement",

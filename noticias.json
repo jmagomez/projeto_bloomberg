@@ -1,5 +1,45 @@
 [
  {
+  "d": "2026-10-05",
+  "hora": "15:33",
+  "titulo": "XP Inc. and Other Stocks Surging After Brazil’s Election Shock",
+  "veiculo": "Barrons.com",
+  "link": "https://finance.yahoo.com/m/6a77f4cd-b3a8-3a78-af0c-eaa1f86bb515/xp-inc.-and-other-stocks.html",
+  "ts": 1791225180
+ },
+ {
+  "d": "2026-10-05",
+  "hora": "15:15",
+  "titulo": "Ecopetrol and Petrobras Complete $1 Billion Caribbean Gas Campaign",
+  "veiculo": "Oilprice.com",
+  "link": "https://finance.yahoo.com/energy/articles/ecopetrol-petrobras-complete-1-billion-181538161.html",
+  "ts": 1791224138
+ },
+ {
+  "d": "2026-10-05",
+  "hora": "13:36",
+  "titulo": "Brazilian stocks soar as Flávio Bolsonaro takes surprise election lead",
+  "veiculo": "Yahoo Finance",
+  "link": "https://finance.yahoo.com/markets/article/brazilian-stocks-soar-as-flavio-bolsonaro-takes-surprise-election-lead-160951504.html",
+  "ts": 1791218190
+ },
+ {
+  "d": "2026-10-05",
+  "hora": "10:28",
+  "titulo": "Petrobras Scores Second Oil Find in Foz do Amazonas Basin",
+  "veiculo": "Zacks",
+  "link": "https://finance.yahoo.com/energy/articles/petrobras-scores-second-oil-foz-132800156.html",
+  "ts": 1791206880
+ },
+ {
+  "d": "2026-10-05",
+  "hora": "08:27",
+  "titulo": "Petrobras reports new oil discovery in Amapá block FZA-M-59",
+  "veiculo": "Offshore Technology",
+  "link": "https://finance.yahoo.com/energy/articles/petrobras-reports-oil-discovery-amap-112728017.html",
+  "ts": 1791199648
+ },
+ {
   "d": "2026-10-02",
   "hora": "11:49",
   "titulo": "Petrobras Makes Second Oil Discovery in Amapá Ultra-Deepwater Well",

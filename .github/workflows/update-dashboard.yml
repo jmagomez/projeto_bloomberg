@@ -86,12 +86,17 @@ jobs:
           fi
           exit "$codigo"
 
+      # O step tem id para expor o output "commitou". A rodada de repescagem
+      # (23:47) roda update_dashboard.py com êxito mas não encontra mudança
+      # em data.js — sem esse flag, ela mandaria e-mail mesmo assim.
       - name: Commita se houver mudança
+        id: commit
         if: steps.dados.outputs.pulou != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data.js noticias.json
+          echo "commitou=false" >> "$GITHUB_OUTPUT"
           if git diff --cached --quiet; then
             echo "Sem mudanças em data.js."
           else
@@ -100,15 +105,16 @@ jobs:
             # falha de push por non-fast-forward.
             git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
             git push
+            echo "commitou=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Extrai resumo para o e-mail
         id: resumo
-        if: steps.dados.outputs.pulou != 'true'
+        if: steps.dados.outputs.pulou != 'true' && steps.commit.outputs.commitou == 'true'
         run: python scripts/emit_summary.py >> "$GITHUB_OUTPUT"
 
       - name: Envia e-mail com o dashboard
-        if: success() && steps.mail.outputs.ok == 'true' && steps.dados.outputs.pulou != 'true'
+        if: success() && steps.mail.outputs.ok == 'true' && steps.dados.outputs.pulou != 'true' && steps.commit.outputs.commitou == 'true'
         uses: dawidd6/action-send-mail@v18
         with:
           server_address: smtp.gmail.com

@@ -295,7 +295,26 @@
     <div class="chart-box h-sm"><canvas id="rsiChart"></canvas></div>
   </div>
 
-  <div class="panel" data-sec="preco">
+    <div class="panel" data-sec="preco">
+    <h2>MACD diário &#x2014; EMA 12/26/9 <span class="info" title="Moving Average Convergence Divergence: diferença entre EMAs de 12 e 26 pregões (linha MACD) e sua EMA de 9 pregões (sinal). O histograma mede a distância. Cruzamentos acima/abaixo do zero são sinais clássicos de momentum.">&#x24D8;</span></h2>
+    <div class="legend">
+      <span><span class="dot" style="background:#58a6ff"></span>MACD (12&#x2013;26)</span>
+      <span><span class="dot" style="background:#d29922"></span>Sinal (EMA 9)</span>
+      <span><span class="dot" style="background:rgba(63,185,80,.7)"></span>histograma +</span>
+      <span><span class="dot" style="background:rgba(248,81,73,.7)"></span>histograma &#x2212;</span>
+    </div>
+    <div class="range-btns" id="macdRangeBtns">
+      <button data-d="63">3M</button>
+      <button data-d="126" class="active">6M</button>
+      <button data-d="252">1A</button>
+      <button data-d="0">Máx</button>
+    </div>
+    <div class="chart-box h-sm"><canvas id="macdChart"></canvas></div>
+    <div class="chart-box h-xs"><canvas id="macdHistChart"></canvas></div>
+    <div class="empty-msg" id="macdEmpty" style="display:none">Este data.js ainda não traz a série diária.</div>
+  </div>
+
+<div class="panel" data-sec="preco">
     <h2>Volume negociado (milhões, soma semanal)</h2>
     <div class="chart-box h-sm"><canvas id="volChart"></canvas></div>
   </div>
@@ -341,7 +360,19 @@
     <div class="empty-msg" id="cmpEmpty" style="display:none">Este data.js não traz a série do índice de referência — a rotina segue sem ela quando a fonte falha, e o painel volta na próxima coleta bem-sucedida.</div>
   </div>
 
-  <div class="panel" data-sec="risco">
+    <div class="panel" data-sec="risco">
+    <h2>Métricas de risco ajustado ao retorno <span class="info" title="Calculadas sobre os retornos logarítmicos diários do período completo, taxa livre de risco = 0. Sharpe = retorno anual / vol anual; Sortino = retorno anual / downside deviation; Calmar = retorno anual / |max drawdown|; VaR histórico = percentil da distribuição de retornos.">&#x24D8;</span></h2>
+    <dl class="metricas" id="riskMetrics">
+      <div><dt>Sharpe (a.a.)</dt><dd id="sharpeVal">&#x2014;<span>retorno / vol</span></dd></div>
+      <div><dt>Sortino (a.a.)</dt><dd id="sortinoVal">&#x2014;<span>retorno / downside vol</span></dd></div>
+      <div><dt>Calmar</dt><dd id="calmarVal">&#x2014;<span>retorno / max drawdown</span></dd></div>
+      <div><dt>VaR 95% (1d)</dt><dd id="var95Val">&#x2014;<span>percentil 5 histórico</span></dd></div>
+      <div><dt>VaR 99% (1d)</dt><dd id="var99Val">&#x2014;<span>percentil 1 histórico</span></dd></div>
+    </dl>
+    <p class="nota">Sharpe e Sortino anualizados, taxa livre de risco = 0. VaR pelo método histórico sobre os retornos diários do período completo.</p>
+  </div>
+
+<div class="panel" data-sec="risco">
     <h2>Drawdown — queda desde o topo histórico <span class="info" title="Para cada semana, quanto o fechamento estava abaixo do maior fechamento já atingido até ali. Zero significa topo histórico novo.">ⓘ</span></h2>
     <div class="chart-box h-md"><canvas id="ddChart"></canvas></div>
   </div>
@@ -367,7 +398,23 @@
     <div class="empty-msg" id="betaEmpty" style="display:none">Este data.js não traz a série do índice de referência.</div>
   </div>
 
-  <div class="panel" data-sec="retorno">
+    <div class="panel" data-sec="risco" id="capturePanel">
+    <h2>Up/Down Capture e Information Ratio vs <span id="captureRefNome">Ibovespa</span> <span class="info" title="Calculados sobre os retornos semanais alinhados. Up Capture: quanto a PETR4 captura do índice nas semanas positivas (&gt;100 = alavancagem). Down Capture: quanto captura nas semanas negativas (&lt;100 = proteção). IR = excess return anualizado ÷ Tracking Error. TE = vol anualizada do excesso de retorno semanal.">&#x24D8;</span></h2>
+    <dl class="metricas" id="captureMetrics">
+      <div><dt>Up Capture (%)</dt><dd id="upCaptureVal">&#x2014;<span>semanas + do índice</span></dd></div>
+      <div><dt>Down Capture (%)</dt><dd id="downCaptureVal">&#x2014;<span>semanas &#x2212; do índice</span></dd></div>
+      <div><dt>Information Ratio</dt><dd id="infoRatioVal">&#x2014;<span>alpha / tracking error</span></dd></div>
+      <div><dt>Tracking Error (a.a.)</dt><dd id="trackErrorVal">&#x2014;<span>% a.a.</span></dd></div>
+    </dl>
+    <div class="empty-msg" id="captureEmpty" style="display:none">Este data.js não traz a série do índice de referência.</div>
+  </div>
+  <div class="panel" data-sec="risco">
+    <h2>Sharpe móvel (252 pregões) <span class="info" title="Janela deslizante de 252 pregões de retornos logarítmicos diários, taxa livre de risco = 0. Mostra como o prêmio de risco ajustado evolui ao longo do tempo.">&#x24D8;</span></h2>
+    <div class="chart-box h-sm"><canvas id="rollingSharpeChart"></canvas></div>
+    <div class="empty-msg" id="rollingSharpeEmpty" style="display:none">Este data.js ainda não traz a série diária.</div>
+  </div>
+
+<div class="panel" data-sec="retorno">
     <h2>Retornos mensais (%) <span class="info" title="Variação do fechamento de um mês para o do mês seguinte. A coluna Ano compõe os meses do próprio ano, então não é a soma deles.">ⓘ</span></h2>
     <div class="heat-wrap"><table class="heat" id="heatTable"><caption class="sr-only">Retornos mensais da PETR4 por ano</caption></table></div>
     <div class="heat-legenda">
@@ -1410,6 +1457,243 @@ if (RISCO && RISCO.md && RISCO.md.length) {
 
 // Por último de tudo: agora que cada gráfico já foi medido e desenhado com o
 // painel visível, as abas podem esconder o que não é da seção ativa.
+(function riscoAjustado() {
+  function ema(arr, period) {
+    const k = 2 / (period + 1), out = [];
+    let e = arr[0];
+    for (let i = 0; i < arr.length; i++) {
+      e = i === 0 ? arr[0] : arr[i] * k + e * (1 - k);
+      out.push(e);
+    }
+    return out;
+  }
+  function logRets(closes) {
+    const r = [];
+    for (let i = 1; i < closes.length; i++) r.push(Math.log(closes[i] / closes[i - 1]));
+    return r;
+  }
+  function mean(a) { return a.reduce((s, v) => s + v, 0) / a.length; }
+  function std(a, m) {
+    const mu = m ?? mean(a);
+    return Math.sqrt(a.reduce((s, v) => s + (v - mu) ** 2, 0) / a.length);
+  }
+  function fmt2(v) { return isFinite(v) ? v.toFixed(2) : "N/D"; }
+  const D = window.PETR4 && window.PETR4.D ? window.PETR4.D : {};
+  const W = window.PETR4 && window.PETR4.W ? window.PETR4.W : {};
+  const REF = window.PETR4 && window.PETR4.REF ? window.PETR4.REF : {};
+
+  // Section 1: Sharpe / Sortino / Calmar / VaR
+  (function () {
+    const closes = D.c;
+    if (!closes || closes.length < 21) {
+      ["sharpeVal","sortinoVal","calmarVal","var95Val","var99Val"]
+        .forEach(function(id) { const el = document.getElementById(id); if (el) el.firstChild.textContent = "N/D"; });
+      return;
+    }
+    const rets = logRets(closes);
+    const mu   = mean(rets);
+    const sig  = std(rets, mu);
+    const annual_ret = mu * 252;
+    const annual_vol = sig * Math.sqrt(252);
+    const sharpe = annual_vol > 0 ? annual_ret / annual_vol : NaN;
+    const downside = rets.filter(function(r) { return r < 0; });
+    const dsig = downside.length > 0 ? std(downside) * Math.sqrt(252) : NaN;
+    const sortino = dsig > 0 ? annual_ret / dsig : NaN;
+    let peak = closes[0], maxDD = 0;
+    for (const c of closes) {
+      if (c > peak) peak = c;
+      const dd = (peak - c) / peak;
+      if (dd > maxDD) maxDD = dd;
+    }
+    const calmar = maxDD > 0 ? annual_ret / maxDD : NaN;
+    const sorted = [...rets].sort(function(a, b) { return a - b; });
+    const n = sorted.length;
+    const var95 = -sorted[Math.floor(n * 0.05)];
+    const var99 = -sorted[Math.floor(n * 0.01)];
+    const set = function(id, v, pct) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.firstChild.textContent = pct ? (isFinite(v) ? (v * 100).toFixed(2) + "%" : "N/D") : fmt2(v);
+      el.className = !isFinite(v) ? "" : v >= 0 ? "pos" : "neg";
+    };
+    set("sharpeVal", sharpe, false);
+    set("sortinoVal", sortino, false);
+    set("calmarVal", calmar, false);
+    set("var95Val", var95, true);
+    set("var99Val", var99, true);
+  })();
+
+  // Section 2: MACD
+  (function () {
+    const closes = D.c;
+    const dates  = D.t;
+    const emptyEl = document.getElementById("macdEmpty");
+    const macdCtx = document.getElementById("macdChart");
+    const histCtx = document.getElementById("macdHistChart");
+    if (!closes || closes.length < 27 || !macdCtx || !histCtx) {
+      if (emptyEl) emptyEl.style.display = "";
+      return;
+    }
+    const ema12 = ema(closes, 12);
+    const ema26 = ema(closes, 26);
+    const macdLine = ema12.map(function(v, i) { return v - ema26[i]; });
+    const signalLine = ema(macdLine, 9);
+    const histogram = macdLine.map(function(v, i) { return v - signalLine[i]; });
+    let activeD = 126;
+    function slice(d) {
+      const n = d === 0 ? closes.length : d;
+      const start = Math.max(0, closes.length - n);
+      return {
+        labels: dates ? dates.slice(start) : macdLine.slice(start).map(function(_, i) { return i; }),
+        macd: macdLine.slice(start),
+        signal: signalLine.slice(start),
+        hist: histogram.slice(start),
+      };
+    }
+    const chartDef = { responsive: true, maintainAspectRatio: false,
+      animation: false, plugins: { legend: { display: false } },
+      scales: { x: { ticks: { maxTicksLimit: 8 } } }
+    };
+    const sl = slice(activeD);
+    const macdChart = new Chart(macdCtx, {
+      type: "line",
+      data: {
+        labels: sl.labels,
+        datasets: [
+          { label: "MACD", data: sl.macd, borderColor: "#58a6ff", borderWidth: 1.5, pointRadius: 0, tension: 0.1 },
+          { label: "Sinal", data: sl.signal, borderColor: "#d29922", borderWidth: 1.5, pointRadius: 0, tension: 0.1 },
+        ],
+      },
+      options: chartDef,
+    });
+    const macdHistChart = new Chart(histCtx, {
+      type: "bar",
+      data: {
+        labels: sl.labels,
+        datasets: [{
+          label: "Histograma",
+          data: sl.hist,
+          backgroundColor: sl.hist.map(function(v) { return v >= 0 ? "rgba(63,185,80,.7)" : "rgba(248,81,73,.7)"; }),
+          borderWidth: 0,
+        }],
+      },
+      options: chartDef,
+    });
+    const btns = document.getElementById("macdRangeBtns");
+    if (btns) btns.addEventListener("click", function(e) {
+      const btn = e.target.closest("[data-d]");
+      if (!btn) return;
+      activeD = +btn.dataset.d;
+      btns.querySelectorAll("[data-d]").forEach(function(b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      const s2 = slice(activeD);
+      macdChart.data.labels = s2.labels;
+      macdChart.data.datasets[0].data = s2.macd;
+      macdChart.data.datasets[1].data = s2.signal;
+      macdChart.update("none");
+      macdHistChart.data.labels = s2.labels;
+      macdHistChart.data.datasets[0].data = s2.hist;
+      macdHistChart.data.datasets[0].backgroundColor = s2.hist.map(function(v) { return v >= 0 ? "rgba(63,185,80,.7)" : "rgba(248,81,73,.7)"; });
+      macdHistChart.update("none");
+    });
+  })();
+
+  // Section 3: Up/Down Capture, IR, TE
+  (function () {
+    const wc = W.c, wRef = REF.W;
+    const captureEmpty = document.getElementById("captureEmpty");
+    if (!wc || !wRef || wc.length < 10 || wRef.length < 10) {
+      if (captureEmpty) captureEmpty.style.display = "";
+      return;
+    }
+    const n = Math.min(wc.length, wRef.length);
+    const stockW = wc.slice(-n), refW = wRef.slice(-n);
+    function weeklyRets(prices) {
+      const r = [];
+      for (let i = 1; i < prices.length; i++) r.push(Math.log(prices[i] / prices[i - 1]));
+      return r;
+    }
+    const stockRets = weeklyRets(stockW), refRets = weeklyRets(refW);
+    const nr = Math.min(stockRets.length, refRets.length);
+    const sr = stockRets.slice(-nr), rr = refRets.slice(-nr);
+    let upNum = 0, upDen = 0, downNum = 0, downDen = 0;
+    for (let i = 0; i < nr; i++) {
+      if (rr[i] > 0) { upNum += sr[i]; upDen += rr[i]; }
+      else if (rr[i] < 0) { downNum += sr[i]; downDen += rr[i]; }
+    }
+    const upCapture   = upDen   !== 0 ? (upNum   / upDen)   * 100 : NaN;
+    const downCapture = downDen !== 0 ? (downNum / downDen) * 100 : NaN;
+    const excess = sr.map(function(v, i) { return v - rr[i]; });
+    const muExcess = mean(excess);
+    const teWeekly = std(excess, muExcess);
+    const te = teWeekly * Math.sqrt(52) * 100;
+    const ir = teWeekly > 0 ? (muExcess * 52) / (teWeekly * Math.sqrt(52)) : NaN;
+    const set = function(id, v) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.firstChild.textContent = isFinite(v) ? v.toFixed(2) : "N/D";
+      el.className = !isFinite(v) ? "" : v >= 0 ? "pos" : "neg";
+    };
+    set("upCaptureVal",   upCapture);
+    set("downCaptureVal", downCapture);
+    set("infoRatioVal",   ir);
+    set("trackErrorVal",  te);
+    const refName = (window.PETR4 && window.PETR4.nomeRef) ? window.PETR4.nomeRef : "Ibovespa";
+    const refEl = document.getElementById("captureRefNome");
+    if (refEl) refEl.textContent = refName;
+  })();
+
+  // Section 4: Rolling Sharpe 252d
+  (function () {
+    const closes = D.c;
+    const dates  = D.t;
+    const emptyEl = document.getElementById("rollingSharpeEmpty");
+    const ctx = document.getElementById("rollingSharpeChart");
+    if (!closes || closes.length < 253 || !ctx) {
+      if (emptyEl) emptyEl.style.display = "";
+      return;
+    }
+    const rets = logRets(closes);
+    const WW = 252;
+    const rollSharpe = [], rollDates = [];
+    for (let i = WW - 1; i < rets.length; i++) {
+      const win = rets.slice(i - WW + 1, i + 1);
+      const mu = mean(win);
+      const sig = std(win, mu);
+      rollSharpe.push(sig > 0 ? (mu * 252) / (sig * Math.sqrt(252)) : NaN);
+      if (dates) rollDates.push(dates[i + 1]);
+    }
+    new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: rollDates.length ? rollDates : rollSharpe.map(function(_, i) { return i; }),
+        datasets: [{
+          label: "Sharpe movel",
+          data: rollSharpe,
+          borderColor: "#58a6ff",
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.1,
+          fill: {
+            target: { value: 0 },
+            above: "rgba(63,185,80,.15)",
+            below: "rgba(248,81,73,.15)",
+          },
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { maxTicksLimit: 8 } },
+          y: { grid: { color: function(c) { return c.tick.value === 0 ? "#888" : "rgba(255,255,255,.05)"; } } },
+        },
+      },
+    });
+  })();
+})();
+
+
 montaAbas();
 
 })();

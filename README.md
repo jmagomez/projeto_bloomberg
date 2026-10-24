@@ -82,13 +82,22 @@ rodada do dia falhar, a do dia seguinte recupera sozinha — a série é baixada
 inteira, não incrementalmente — e o e-mail de falha avisa. Para recuperar na
 hora, o disparo manual continua na aba Actions.
 
+### O e-mail segue o `data.js`, não o commit
+
+O acervo de manchetes cresce por conta própria, e uma rodada em que só
+`noticias.json` muda não trouxe fechamento novo. O workflow separa os dois
+casos: commita o que mudou, mas só manda o e-mail do pregão quando `data.js`
+mudou. Sem essa distinção, um dia sem pregão novo mas com manchete nova
+anunciaria de novo o fechamento da véspera.
+
 ### A rotina só roda com a bolsa fechada
 
-Toda rodada agendada cai fora do pregão, e isso é verificável na própria grade:
-a B3 negocia das 13:00 às 20:00 UTC, e os três horários (21:47, 23:47 e 11:13
-UTC de sábado) estão fora dessa janela com folga de horas — de propósito, para
-que nem o atraso de enfileiramento nem um erro no campo de dia da semana
-coloquem uma rodada dentro da sessão.
+A rodada agendada cai fora do pregão, e isso é verificável na própria grade: a
+B3 negocia das 13:00 às 20:00 UTC e o único horário agendado (21:47 UTC) está
+fora dessa janela com folga de horas — de propósito, para que nem o atraso de
+enfileiramento nem um erro no campo de dia da semana coloquem a rodada dentro
+da sessão. O atraso típico da fila hoje é de cerca de duas horas, o que põe a
+execução perto de 00:00 UTC; a abertura seguinte só vem às 13:00 UTC.
 
 Mas horário de cron é pedido, não garantia. A garantia é uma trava no código:
 `pregao_em_curso` lê `currentTradingPeriod` da própria resposta da fonte e a

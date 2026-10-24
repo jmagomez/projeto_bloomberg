@@ -180,9 +180,9 @@ def extrai_pregoes(res: dict) -> list[dict]:
     ``fora_faixa`` para o log e é publicada como veio. Ver ``barra_coerente``.
 
     Barra descartada não é reinventada: a série simplesmente não alcança aquele
-    pregão, ``valida_atualidade`` marca a pendência, e a repescagem seguinte
+    pregão, ``valida_atualidade`` marca a pendência, e a rodada do dia seguinte
     pega a barra já consolidada. É o que se quer — publicar um pregão
-    com número inventado seria pior do que publicá-lo algumas horas depois.
+    com número inventado seria pior do que publicá-lo um dia depois.
     """
     meta = res.get("meta") or {}
     offset = int(meta.get("gmtoffset") or 0)
@@ -291,7 +291,7 @@ def recupera_fechamento_do_meta(res: dict, linhas: list[dict]) -> tuple[list[dic
         # Abertura, máxima ou mínima ausentes ou impossíveis. O ``meta`` traz
         # regularMarketDayHigh/Low/Volume, mas **não** traz a abertura — não há
         # de onde tirar esse campo sem inventá-lo, então a barra não é
-        # recomposta. Fica pendente e a repescagem seguinte resolve.
+        # recomposta. Fica pendente e a rodada do dia seguinte resolve.
         return linhas, None
 
     fechamento = preco_possivel(preco)

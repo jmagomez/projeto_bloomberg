@@ -537,3 +537,144 @@ def test_trava_dispensada_so_com_valor_afirmativo(monkeypatch):
         assert ud.trava_dispensada() is False
     monkeypatch.delenv(ud.VAR_FORCAR, raising=False)
     assert ud.trava_dispensada() is False
+
+
+# --- uma publicação por pregão, e alarme só quando há o que alarmar ----------
+
+
+def test_situacao_sem_pendencia_publica():
+    assert ud.situacao_da_coleta("2026-10-23", "2026-10-22", None) == "publica"
+
+
+def test_situacao_cache_velho_com_dashboard_em_dia():
+    """O caso real das rodadas #91 e #106: 24 falhas com o dashboard correto.
+
+    A fonte diz que o último pregão fechado é 13/10 e serve uma série que
+    termina em 09/10 — cache velho de um nó do Yahoo. O dashboard já publicou
+    13/10. Não há o que fazer, e não há nada errado.
+    """
+    assert ud.situacao_da_coleta("2026-10-09", "2026-10-13", "2026-10-13") == "em_dia"
+
+
+def test_situacao_dashboard_realmente_atrasado_e_falha():
+    """A pendência que importa: a fonte deve um pregão e o dashboard não o tem."""
+    assert ud.situacao_da_coleta("2026-10-09", "2026-10-09", "2026-10-13") == "atrasado"
+
+
+def test_situacao_avanco_parcial_ainda_publica():
+    """Coleta avançou mas ainda deve um pregão: publica o avanço sinalizado."""
+    assert ud.situacao_da_coleta("2026-10-12", "2026-10-09", "2026-10-13") == "publica"
+
+
+def test_situacao_primeira_execucao_sem_nada_publicado():
+    assert ud.situacao_da_coleta("2026-10-13", "", "2026-10-13") == "publica"
+
+
+def test_mesmo_conteudo_ignora_so_o_carimbo_de_hora():
+    a = ud.monta_payload([dict(p) for p in SERIE], {})
+    b = ud.monta_payload([dict(p) for p in SERIE], {})
+    b["stats"]["updated"] = "2999-01-01"
+    b["stats"]["updated_utc"] = "2999-01-01T00:00Z"
+    assert ud.mesmo_conteudo(b, a)
+
+
+def test_mesmo_conteudo_enxerga_mudanca_de_preco():
+    a = ud.monta_payload([dict(p) for p in SERIE], {})
+    serie = [dict(p) for p in SERIE]
+    serie[-1]["c"] = serie[-1]["c"] + 0.01
+    b = ud.monta_payload(serie, {})
+    assert not ud.mesmo_conteudo(b, a)
+
+
+def test_mesmo_conteudo_enxerga_manchete_nova():
+    """Manchete nova num pregão já publicado conta como conteúdo novo."""
+    a = ud.monta_payload([dict(p) for p in SERIE], {})
+    manchetes = {"2026-08-21": [{"h": "10:00", "t": "T", "v": "V", "u": "https://x"}]}
+    b = ud.monta_payload([dict(p) for p in SERIE], {}, None, None, None, manchetes)
+    assert not ud.mesmo_conteudo(b, a)
+
+
+def test_mesmo_conteudo_sem_publicacao_anterior():
+    a = ud.monta_payload([dict(p) for p in SERIE], {})
+    assert not ud.mesmo_conteudo(a, None)
+
+
+def test_main_nao_reescreve_quando_nada_mudou(monkeypatch, tmp_path, capsys):
+    """Rodar duas vezes no mesmo pregão escreve o arquivo uma vez só."""
+    monkeypatch.setattr(ud, "busca_serie_diaria", _coleta_falsa(False))
+    monkeypatch.setattr(ud, "busca_fechamentos", lambda *a, **k: {})
+    monkeypatch.setattr(ud.nt, "busca_manchetes", lambda: [])
+    monkeypatch.setattr(ud, "OUT", tmp_path / "data.js")
+    monkeypatch.setattr(ud, "ARQUIVO_NOTICIAS", tmp_path / "noticias.json")
+    monkeypatch.delenv(ud.VAR_FORCAR, raising=False)
+
+    assert ud.main() == 0
+    primeira = (tmp_path / "data.js").read_text(encoding="utf-8")
+
+    assert ud.main() == 0
+    assert (tmp_path / "data.js").read_text(encoding="utf-8") == primeira
+    assert "Nada mudou desde a última publicação" in capsys.readouterr().out
+
+
+def test_main_nao_falha_com_cache_velho_e_dashboard_em_dia(monkeypatch, tmp_path, capsys):
+    """A reprodução da falha diária: termina em 0, sem escrever e sem alarme."""
+
+    def coleta(symbol, period1):
+        return (
+            [dict(p) for p in SERIE[:-1]],  # a fonte serviu uma série curta
+            {},
+            {
+                "ultimo_pregao": "2026-08-21",
+                "aberto": False,
+                "operando": False,
+                "pendente": "2026-08-21",
+            },
+            [],
+        )
+
+    arquivo = tmp_path / "data.js"
+    payload = ud.monta_payload([dict(p) for p in SERIE], {})
+    arquivo.write_text(
+        ud.PREFIXO + json.dumps(payload, ensure_ascii=False) + ";\n", encoding="utf-8"
+    )
+    antes = arquivo.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(ud, "busca_serie_diaria", coleta)
+    monkeypatch.setattr(ud, "OUT", arquivo)
+    monkeypatch.setattr(ud, "ARQUIVO_NOTICIAS", tmp_path / "noticias.json")
+    monkeypatch.delenv(ud.VAR_FORCAR, raising=False)
+
+    assert ud.main() == 0  # não é falha
+    assert arquivo.read_text(encoding="utf-8") == antes  # e nada foi escrito
+    assert "cache velho" in capsys.readouterr().out
+
+
+def test_main_ainda_falha_com_o_dashboard_atrasado(monkeypatch, tmp_path, capsys):
+    """O alarme que deve continuar tocando: a fonte deve um pregão que falta."""
+
+    def coleta(symbol, period1):
+        return (
+            [dict(p) for p in SERIE],
+            {},
+            {
+                "ultimo_pregao": "2026-08-24",
+                "aberto": False,
+                "operando": False,
+                "pendente": "2026-08-24",
+            },
+            [],
+        )
+
+    arquivo = tmp_path / "data.js"
+    payload = ud.monta_payload([dict(p) for p in SERIE], {})
+    arquivo.write_text(
+        ud.PREFIXO + json.dumps(payload, ensure_ascii=False) + ";\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr(ud, "busca_serie_diaria", coleta)
+    monkeypatch.setattr(ud, "OUT", arquivo)
+    monkeypatch.setattr(ud, "ARQUIVO_NOTICIAS", tmp_path / "noticias.json")
+    monkeypatch.delenv(ud.VAR_FORCAR, raising=False)
+
+    assert ud.main() == 2
+    assert "está parado em" in capsys.readouterr().err

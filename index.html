@@ -514,10 +514,17 @@ const divYieldTtm = hasTotalReturn ? (S.div_yield_ttm_pct || 0) : 0;
 const hasDaily = !!(D && D.d && D.d.length > 1);
 const hasDayChange = typeof S.day_change_pct === 'number';
 
-// ===== cabeçalho: separa "último pregão" de "quando a rotina rodou" =====
+// ===== cabeçalho: separa "último pregão" de "quando o dado mudou" =====
 // Antes o cabeçalho mostrava só "atualizado há N dias" a partir de S.updated,
-// que é a data da execução — o que escondia justamente o caso em que a rotina
-// rodou mas os dados vieram defasados.
+// o que escondia justamente o caso em que a rotina rodou mas os dados vieram
+// defasados.
+//
+// S.updated/S.updated_utc mudaram de significado: a rotina só reescreve o
+// data.js quando algo além do carimbo muda, então o campo marca agora a última
+// PUBLICAÇÃO — a última vez que o dado mudou —, e não a última execução. Em
+// feriado a rotina roda e o carimbo fica parado, corretamente. Quem responde
+// "os dados estão velhos?" é a contagem abaixo, que compara S.last_date com
+// hoje e não depende do carimbo.
 el('periodTxt').textContent =
   `${S.first_date} a ${S.last_date} · ${(S.days || 0).toLocaleString('pt-BR')} pregões · fonte: ${S.source}`;
 
@@ -548,8 +555,8 @@ if (S.last_date && S.last_date < hojeSP) {
 }
 
 el('freshTxt').textContent = S.updated_utc
-  ? `Rotina executada em ${S.updated_utc} (UTC) · dados até o pregão de ${S.last_date}`
-  : `Rotina executada em ${S.updated} · dados até o pregão de ${S.last_date}`;
+  ? `Última publicação em ${S.updated_utc} (UTC) · dados até o pregão de ${S.last_date}`
+  : `Última publicação em ${S.updated} · dados até o pregão de ${S.last_date}`;
 
 // A pendência declarada pela rotina é informação de primeira mão e tem
 // precedência sobre a contagem de dias úteis, que é só uma heurística e não
@@ -645,7 +652,7 @@ if (typeof S.drawdown_atual_pct === 'number') {
 el('footerTxt').textContent =
   `Projeto Bloomberg · pipeline ETL (raw → silver → gold) · preços de fechamento não ajustados por ` +
   `proventos — o indicador "Retorno no período" soma separadamente os dividendos e JCP pagos por ação · ` +
-  `indicadores calculados no navegador · rotina executada em ${S.updated} · isto não é recomendação de investimento` +
+  `indicadores calculados no navegador · última publicação em ${S.updated} · isto não é recomendação de investimento` +
   (S.close_source === 'meta'
     ? ` · o fechamento de ${S.last_date} veio do campo de cotação da fonte porque a barra do dia veio sem esse valor`
     : '');

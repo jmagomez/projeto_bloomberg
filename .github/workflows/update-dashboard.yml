@@ -1,25 +1,21 @@
 name: Atualiza dashboard PETR4
 
-# Toda rodada agendada cai com a bolsa fechada. A B3 negocia das 10:00 às 17:00
-# em Brasília (13:00–20:00 UTC), com after-market até 17:55. O minuto fora de
-# :00 e :30 é de propósito: são os mais disputados na fila do GitHub Actions, e
-# aqui o atraso de enfileiramento já chegou a horas — por isso nenhum horário
-# aqui pode estar a menos de algumas horas da abertura seguinte.
+# Uma rodada por pregão, depois do fechamento. A B3 negocia das 10:00 às 17:00
+# em Brasília (13:00–20:00 UTC), com after-market até 17:55; 21:47 UTC = 18:47
+# em Brasília, com o dia consolidado. O minuto fora de :00 e :30 é de
+# propósito: são os mais disputados na fila do GitHub Actions. O atraso típico
+# da fila hoje é de cerca de duas horas, o que ainda deixa a execução longe da
+# abertura seguinte (13:00 UTC).
+#
+# Havia três horários: este, uma repescagem às 23:47 e uma rede de sábado. Os
+# dois extras saíram junto com a correção que os tornou desnecessários: a
+# rotina virou idempotente (`mesmo_conteudo`) e parou de chamar de falha o
+# cache velho da fonte quando o dashboard já estava em dia (`situacao_da_coleta`).
+# Antes disso, cada rodada extra rendia um commit cujo único conteúdo era a
+# hora em que ela rodou, e um alarme por dia.
 on:
   schedule:
-    # 21:47 UTC = 18:47 em Brasília, de segunda a sexta. A rodada principal:
-    # pregão encerrado, after-market encerrado, dia consolidado.
     - cron: "47 21 * * 1-5"
-    # 23:47 UTC = 20:47 em Brasília, do mesmo dia. Repescagem para quando a
-    # fonte ainda não tinha o pregão às 18:47 — acontece. Se a primeira rodada
-    # publicou, esta não encontra mudança em data.js e termina sem commitar.
-    - cron: "47 23 * * 1-5"
-    # 11:13 UTC de sábado = 08:13 em Brasília, com a bolsa fechada o dia
-    # inteiro. Última rede para o pregão de sexta, se as duas de sexta falharem.
-    # Os três horários ficam fora da janela 13:00–20:00 UTC de propósito: assim
-    # um erro no campo de dia da semana não coloca rodada nenhuma dentro do
-    # pregão.
-    - cron: "13 11 * * 6"
   workflow_dispatch:
     inputs:
       forcar:
@@ -86,9 +82,11 @@ jobs:
           fi
           exit "$codigo"
 
-      # O step tem id para expor o output "commitou". A rodada de repescagem
-      # (23:47) roda update_dashboard.py com êxito mas não encontra mudança
-      # em data.js — sem esse flag, ela mandaria e-mail mesmo assim.
+      # Dois outputs, porque são duas perguntas diferentes. "commitou" diz se
+      # houve o que versionar; "data_js" diz se o fechamento mudou. O acervo de
+      # manchetes cresce por conta própria, e um dia em que só noticias.json
+      # muda não trouxe pregão novo — mandar o e-mail do dia nesse caso seria
+      # anunciar de novo o fechamento da véspera.
       - name: Commita se houver mudança
         id: commit
         if: steps.dados.outputs.pulou != 'true'
@@ -97,9 +95,13 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data.js noticias.json
           echo "commitou=false" >> "$GITHUB_OUTPUT"
+          echo "data_js=false" >> "$GITHUB_OUTPUT"
           if git diff --cached --quiet; then
-            echo "Sem mudanças em data.js."
+            echo "Nada mudou: nem data.js, nem o acervo de manchetes."
           else
+            if ! git diff --cached --quiet -- data.js; then
+              echo "data_js=true" >> "$GITHUB_OUTPUT"
+            fi
             git commit -m "Atualiza dados do dashboard (pregão de $(python scripts/emit_summary.py | sed -n 's/^last_date=//p'))"
             # A rotina roda em paralelo com commits manuais; um rebase evita
             # falha de push por non-fast-forward.
@@ -110,11 +112,11 @@ jobs:
 
       - name: Extrai resumo para o e-mail
         id: resumo
-        if: steps.dados.outputs.pulou != 'true' && steps.commit.outputs.commitou == 'true'
+        if: steps.dados.outputs.pulou != 'true' && steps.commit.outputs.data_js == 'true'
         run: python scripts/emit_summary.py >> "$GITHUB_OUTPUT"
 
       - name: Envia e-mail com o dashboard
-        if: success() && steps.mail.outputs.ok == 'true' && steps.dados.outputs.pulou != 'true' && steps.commit.outputs.commitou == 'true'
+        if: success() && steps.mail.outputs.ok == 'true' && steps.dados.outputs.pulou != 'true' && steps.commit.outputs.data_js == 'true'
         uses: dawidd6/action-send-mail@v18
         with:
           server_address: smtp.gmail.com

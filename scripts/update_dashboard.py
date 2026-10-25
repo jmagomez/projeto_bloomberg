@@ -21,7 +21,14 @@ Blocos publicados:
 A coleta e a validação de atualidade ficam em ``yahoo_chart.py``. Este módulo
 não estima nem completa preço nenhum. Se a fonte deve um pregão mas a coleta
 ainda assim avança em relação ao publicado, o avanço é publicado com a pendência
-sinalizada; se não avança nada, o job falha e o data.js fica como está.
+sinalizada; se o dashboard fica parado atrás da fonte, o job falha e o data.js
+fica como está.
+
+**Uma publicação por pregão.** ``mesmo_conteudo`` compara o payload novo com o
+publicado ignorando ``CAMPOS_VOLATEIS``, e a rotina simplesmente não reescreve o
+arquivo quando nada mudou — rodar duas vezes no mesmo pregão tem o mesmo efeito
+que rodar uma. ``situacao_da_coleta`` separa "a fonte serviu cache velho e o
+dashboard já está em dia" de "o dashboard está atrasado": só a segunda é falha.
 
 **A rotina só publica com o pregão encerrado.** Com a bolsa operando — regular
 ou after-market dentro da margem — ela sai por ``SAIDA_PREGAO_EM_CURSO`` sem
@@ -66,6 +73,14 @@ VALORES_VERDADEIROS = {"1", "true", "sim", "yes", "on"}
 # e o workflow o trata à parte — senão a desistência dispararia o e-mail de erro
 # todo dia, que é a forma mais rápida de treinar alguém a ignorar o alarme.
 SAIDA_PREGAO_EM_CURSO = 9
+
+# Campos que a própria rotina carimba com a hora de execução. Entram no data.js
+# como procedência, mas não dizem nada sobre o mercado — e é por isso que eles
+# têm de sair da comparação antes de decidir se há o que publicar. Enquanto
+# contavam, duas rodadas no mesmo pregão produziam dois commits idênticos em
+# conteúdo e dois e-mails com os mesmos números: o `git diff --cached --quiet`
+# do workflow nunca podia ser verdadeiro, porque "agora" muda sempre.
+CAMPOS_VOLATEIS = ("updated", "updated_utc")
 
 SYMBOL = "PETR4.SA"
 # Índice de referência para a comparação relativa do dashboard. É opcional: se
@@ -426,6 +441,56 @@ def confere_precos_possiveis(payload: dict) -> None:
                     )
 
 
+def mesmo_conteudo(novo: dict, anterior: dict | None) -> bool:
+    """Os dois payloads dizem a mesma coisa sobre o mercado?
+
+    Compara tudo menos ``CAMPOS_VOLATEIS``. Serve para a rotina ser
+    **idempotente**: rodar de novo no mesmo pregão não reescreve o arquivo, não
+    gera commit e não dispara e-mail. Sem isto, qualquer rodada extra — uma
+    repescagem, um disparo manual, um *re-run* — publicava um commit cujo único
+    conteúdo era a hora em que ela rodou.
+
+    O ida-e-volta por JSON nos dois lados não é desperdício: o payload em
+    memória pode ter tuplas onde o arquivo lido tem listas, e sem normalizar os
+    dois do mesmo jeito a comparação acusaria diferença que não existe.
+    """
+    if not anterior:
+        return False
+
+    def limpo(payload: dict) -> dict:
+        copia = json.loads(json.dumps(payload, ensure_ascii=False))
+        for campo in CAMPOS_VOLATEIS:
+            copia.get("stats", {}).pop(campo, None)
+        return copia
+
+    return limpo(novo) == limpo(anterior)
+
+
+def situacao_da_coleta(ultimo_coletado: str, publicado: str, pendente: str | None) -> str:
+    """O que fazer quando a fonte diz dever um pregão: ``publica``,
+    ``em_dia`` ou ``atrasado``.
+
+    A distinção que faltava. A pergunta certa não é "a coleta avançou?", e sim
+    **"o dashboard está atrás da fonte?"**. Quando o Yahoo serve um nó com cache
+    velho — devolvendo uma série que termina dias antes do pregão que ele mesmo
+    reporta — a coleta de fato não avança; mas se o dashboard já publicou aquele
+    pregão, não há nada errado e não há nada a fazer.
+
+    A versão anterior tratava esse caso como falha, e era exatamente o caso que
+    ocorria todo dia na segunda rodada: 24 das 63 rodadas entre 15/09 e 23/10
+    terminaram com "a coleta não avança além do que já está publicado" — todas
+    com o dashboard correto e em dia. Um alarme que dispara num dia normal
+    ensina a ignorar o alarme.
+    """
+    if not pendente:
+        return "publica"
+    if publicado and publicado >= pendente:
+        return "em_dia"
+    if ultimo_coletado <= publicado:
+        return "atrasado"
+    return "publica"
+
+
 def blocos_analiticos(
     linhas: list[dict], proventos: dict[str, float], aux: dict[str, dict[str, float]]
 ) -> tuple[dict, dict]:
@@ -700,14 +765,19 @@ def main() -> int:
     publicado = (anterior or {}).get("stats", {}).get("last_date", "")
     pendente = estado.get("pendente")
 
-    # Pregão pendente na fonte: só vale desistir se a coleta também não avançar
-    # em relação ao que já está publicado. Avançando, é melhor publicar o avanço
-    # marcado como incompleto do que deixar o dashboard parado esperando a fonte.
-    if pendente and linhas[-1]["d"] <= publicado:
+    # Pregão pendente na fonte. Três desfechos possíveis, e só um é falha.
+    situacao = situacao_da_coleta(linhas[-1]["d"], publicado, pendente)
+    if situacao == "em_dia":
+        print(
+            f"::notice::A fonte informa o pregão de {pendente} e serviu uma série que "
+            f"termina em {linhas[-1]['d']} — cache velho de um nó do Yahoo. O dashboard "
+            f"já publicou até {publicado}, então não há o que fazer. Nada foi escrito."
+        )
+        return 0
+    if situacao == "atrasado":
         print(
             f"[update] ERRO: a fonte informa o pregão de {pendente}, não o entregou, "
-            f"e a coleta não avança além do que já está publicado ({publicado}). "
-            "Nada foi escrito.",
+            f"e o dashboard está parado em {publicado}. Nada foi escrito.",
             file=sys.stderr,
         )
         return 2
@@ -754,6 +824,16 @@ def main() -> int:
     except DadosDesatualizadosError as exc:
         print(f"[update] ERRO: {exc}", file=sys.stderr)
         return 2
+
+    # Idempotência: se o payload novo diz exatamente o mesmo que o publicado,
+    # reescrever o arquivo só trocaria o carimbo de hora — e isso viraria um
+    # commit e um e-mail sem nenhum número novo dentro.
+    if mesmo_conteudo(payload, anterior):
+        print(
+            f"::notice::Nada mudou desde a última publicação (pregão de "
+            f"{payload['stats']['last_date']}). O data.js não foi reescrito."
+        )
+        return 0
 
     OUT.write_text(PREFIXO + json.dumps(payload, ensure_ascii=False) + ";\n", encoding="utf-8")
 

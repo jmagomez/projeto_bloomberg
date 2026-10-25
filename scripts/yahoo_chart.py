@@ -180,9 +180,9 @@ def extrai_pregoes(res: dict) -> list[dict]:
     ``fora_faixa`` para o log e é publicada como veio. Ver ``barra_coerente``.
 
     Barra descartada não é reinventada: a série simplesmente não alcança aquele
-    pregão, ``valida_atualidade`` marca a pendência, e a repescagem seguinte
+    pregão, ``valida_atualidade`` marca a pendência, e a rodada do dia seguinte
     pega a barra já consolidada. É o que se quer — publicar um pregão
-    com número inventado seria pior do que publicá-lo algumas horas depois.
+    com número inventado seria pior do que publicá-lo um dia depois.
     """
     meta = res.get("meta") or {}
     offset = int(meta.get("gmtoffset") or 0)
@@ -291,7 +291,7 @@ def recupera_fechamento_do_meta(res: dict, linhas: list[dict]) -> tuple[list[dic
         # Abertura, máxima ou mínima ausentes ou impossíveis. O ``meta`` traz
         # regularMarketDayHigh/Low/Volume, mas **não** traz a abertura — não há
         # de onde tirar esse campo sem inventá-lo, então a barra não é
-        # recomposta. Fica pendente e a repescagem seguinte resolve.
+        # recomposta. Fica pendente e a rodada do dia seguinte resolve.
         return linhas, None
 
     fechamento = preco_possivel(preco)
@@ -369,8 +369,23 @@ def _mescla(base: list[dict], extra: list[dict]) -> list[dict]:
     return [por_data[d] for d in sorted(por_data)]
 
 
+def ordem_dos_hosts(tentativa: int) -> tuple[str, ...]:
+    """Rotaciona qual host é consultado primeiro, a cada tentativa.
+
+    A série longa é servida pelo **primeiro** host que responder, e sem esta
+    rotação esse host era sempre o mesmo. Como o cache do Yahoo é por nó,
+    repetir a consulta contra o nó que está com a resposta velha repete a
+    resposta velha: as tentativas gastavam a espera sem variar o que importa.
+
+    Não é garantia — os dois nós podem estar velhos ao mesmo tempo, e foi o que
+    se viu em 2026-10-20. É só uma repetição que de fato repete diferente.
+    """
+    i = tentativa % len(HOSTS)
+    return HOSTS[i:] + HOSTS[:i]
+
+
 def _uma_tentativa(
-    symbol: str, period1: int
+    symbol: str, period1: int, tentativa: int = 0
 ) -> tuple[list[dict], dict[str, float], dict, list[str]]:
     agora = int(datetime.now(UTC).timestamp())
     params_longo = {
@@ -381,6 +396,7 @@ def _uma_tentativa(
     }
     params_curto = {"range": "1mo", "interval": "1d", "events": "div"}
 
+    hosts = ordem_dos_hosts(tentativa)
     avisos: list[str] = []
     recomposicoes: set[str] = set()
     serie_longa: list[dict] = []
@@ -390,7 +406,7 @@ def _uma_tentativa(
     falhas: list[str] = []
 
     # Série completa: o primeiro host que responder resolve.
-    for host in HOSTS:
+    for host in hosts:
         try:
             res = _requisita(host, symbol, params_longo)
         except ErroTransitorio as exc:
@@ -518,7 +534,7 @@ def busca_serie_diaria(
             )
             time.sleep(espera)
         try:
-            linhas, proventos, estado, avisos = _uma_tentativa(symbol, period1)
+            linhas, proventos, estado, avisos = _uma_tentativa(symbol, period1, tentativa)
             linhas, avisos_val, pendente = valida_atualidade(linhas, estado)
             estado["pendente"] = pendente
             resultado = (linhas, proventos, estado, avisos + avisos_val)

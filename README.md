@@ -35,25 +35,69 @@ projeto_bloomberg/
 `scripts/update_dashboard.py` baixa a série diária da PETR4 desde 2010 no Yahoo
 Finance (preço e proventos), busca o Ibovespa (`^BVSP`) para a comparação,
 calcula os indicadores e escreve `data.js`. O GitHub Actions roda a rotina
-**todo dia útil às 18:47 de Brasília**, depois do fechamento e do after-market
-da B3, commita o `data.js` e envia um e-mail com o resumo do pregão.
-
-Há uma **repescagem às 20:47 do mesmo dia** (segunda a sexta) e uma **última
-rede no sábado às 08:13**, para o pregão de sexta. Se a rodada anterior já
-publicou, a seguinte não encontra mudança em `data.js` e termina sem commitar.
+**uma vez por pregão, todo dia útil às 18:47 de Brasília**, depois do
+fechamento e do after-market da B3, commita o `data.js` e envia um e-mail com o
+resumo do pregão.
 
 Os minutos são deliberadamente estranhos. `:00` e `:30` são os horários mais
 disputados na fila do GitHub Actions e o enfileiramento aqui chegou a atrasar a
 rodada em quase seis horas — o run agendado para 21:30 UTC só começou às 03:13
 UTC do dia seguinte.
 
+### Por que uma rodada só, e não três
+
+Até 23/10/2026 a grade tinha três horários: 18:47, 20:47 e sábado às 08:13. A
+ideia era repescar quando a fonte não tivesse o pregão no primeiro horário. O
+efeito observado foi outro, e os dois sintomas tinham a mesma raiz.
+
+**Commits repetidos.** Em quatro das cinco últimas sextas, o mesmo pregão foi
+commitado três vezes. Comparando duas dessas publicações campo a campo, a única
+diferença eram `stats.updated` e `stats.updated_utc` — o carimbo da hora em que
+a rotina rodou. Como esses campos mudam sempre, o `git diff --cached --quiet` do
+workflow nunca podia ser verdadeiro, e toda rodada virava commit, push e e-mail
+com os mesmos números.
+
+**Falha diária.** 24 das 63 rodadas entre 15/09 e 23/10 terminaram em erro,
+todas com a mesma mensagem e sempre na segunda rodada do dia. O log da #91 é
+representativo: a fonte informa que o último pregão fechado é 13/10 e serve uma
+série que termina em 09/10 — cache velho de um nó do Yahoo. O dashboard já
+tinha publicado 13/10, ou seja, **estava correto e em dia**; mas a trava
+perguntava "a coleta avançou?" em vez de "o dashboard está atrás da fonte?", e
+respondia falha. Alarme que toca em dia normal ensina a ignorar alarme.
+
+As duas correções estão no código, não na grade:
+
+- `mesmo_conteudo()` compara o payload novo com o publicado ignorando os campos
+  de carimbo de hora. Se nada mudou, o arquivo **não é reescrito** — e aí o
+  `git diff` do workflow enfim diz a verdade. A rotina passa a ser idempotente:
+  rodar duas vezes no mesmo pregão tem o mesmo efeito que rodar uma.
+- `situacao_da_coleta()` separa três desfechos onde antes havia dois: `publica`,
+  `em_dia` (a fonte serviu cache velho, mas o dashboard já tem aquele pregão —
+  nada a fazer, saída 0) e `atrasado` (a fonte deve um pregão que o dashboard
+  não tem — essa, sim, é falha).
+
+Com a rotina idempotente, repescagem deixou de ter função: ela existia para
+cobrir uma fonte instável e o que fazia era multiplicar commit e alarme. Se a
+rodada do dia falhar, a do dia seguinte recupera sozinha — a série é baixada
+inteira, não incrementalmente — e o e-mail de falha avisa. Para recuperar na
+hora, o disparo manual continua na aba Actions.
+
+### O e-mail segue o `data.js`, não o commit
+
+O acervo de manchetes cresce por conta própria, e uma rodada em que só
+`noticias.json` muda não trouxe fechamento novo. O workflow separa os dois
+casos: commita o que mudou, mas só manda o e-mail do pregão quando `data.js`
+mudou. Sem essa distinção, um dia sem pregão novo mas com manchete nova
+anunciaria de novo o fechamento da véspera.
+
 ### A rotina só roda com a bolsa fechada
 
-Toda rodada agendada cai fora do pregão, e isso é verificável na própria grade:
-a B3 negocia das 13:00 às 20:00 UTC, e os três horários (21:47, 23:47 e 11:13
-UTC de sábado) estão fora dessa janela com folga de horas — de propósito, para
-que nem o atraso de enfileiramento nem um erro no campo de dia da semana
-coloquem uma rodada dentro da sessão.
+A rodada agendada cai fora do pregão, e isso é verificável na própria grade: a
+B3 negocia das 13:00 às 20:00 UTC e o único horário agendado (21:47 UTC) está
+fora dessa janela com folga de horas — de propósito, para que nem o atraso de
+enfileiramento nem um erro no campo de dia da semana coloquem a rodada dentro
+da sessão. O atraso típico da fila hoje é de cerca de duas horas, o que põe a
+execução perto de 00:00 UTC; a abertura seguinte só vem às 13:00 UTC.
 
 Mas horário de cron é pedido, não garantia. A garantia é uma trava no código:
 `pregao_em_curso` lê `currentTradingPeriod` da própria resposta da fonte e a
@@ -116,7 +160,7 @@ Três travas, em camadas independentes:
 2. A barra descartada **não é reinventada**. O `meta` traz
    `regularMarketDayHigh/Low/Volume` mas **não** traz a abertura — não há de
    onde tirar esse campo sem inventá-lo. A série fica sem aquele pregão, a
-   pendência é sinalizada, e a repescagem seguinte pega a barra consolidada.
+   pendência é sinalizada, e a rodada do dia seguinte pega a barra consolidada.
 3. `confere_precos_possiveis()` reexamina o **payload pronto** e recusa qualquer
    preço ≤ 0 em `stats`, `D` ou `W`. Por olhar o resultado e não o caminho, essa
    trava vale também para código que venha a ser acrescentado depois.
@@ -182,11 +226,17 @@ de entrar.
 python scripts/update_dashboard.py
 ```
 
-Códigos de saída: `0` sucesso (inclusive publicação parcial com pendência
-sinalizada) · `2` a fonte deve um pregão e a coleta não avança além do que já
-está publicado — nada foi escrito · `3` fonte indisponível · `9` a bolsa ainda
-estava operando e a rotina desistiu sem escrever nada (rodar de novo depois do
-fechamento, ou `FORCAR_PREGAO_ABERTO=1` para publicar mesmo assim).
+Códigos de saída: `0` sucesso — publicou, ou não havia o que publicar (nada
+mudou desde a última vez, ou a fonte serviu cache velho com o dashboard já em
+dia) · `2` a fonte deve um pregão e o dashboard **está parado atrás dele** —
+nada foi escrito · `3` fonte indisponível · `9` a bolsa ainda estava operando e
+a rotina desistiu sem escrever nada (rodar de novo depois do fechamento, ou
+`FORCAR_PREGAO_ABERTO=1` para publicar mesmo assim).
+
+Nos casos de saída `0` em que nada foi escrito, o workflow não commita e não
+manda e-mail. O e-mail do pregão só sai quando o `data.js` de fato mudou — uma
+manchete nova para um pregão fora da janela publicada versiona o
+`noticias.json` sem disparar e-mail.
 
 ### Pipeline ETL (Alpha Vantage)
 

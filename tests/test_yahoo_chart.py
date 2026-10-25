@@ -354,3 +354,20 @@ def test_trava_sobrevive_a_resposta_sem_regular_market_time(monkeypatch):
     estado = yc.estado_do_mercado(res)
     assert estado["ultimo_pregao"] is None  # seria descartado por busca_serie_diaria
     assert estado["operando"] is True  # mas a trava enxerga o pregão correndo
+
+
+# --- a repetição precisa repetir diferente -----------------------------------
+
+
+def test_ordem_dos_hosts_rotaciona_a_cada_tentativa():
+    """Sem isto, as 4 tentativas batiam sempre no mesmo nó de cache."""
+    primeiros = [yc.ordem_dos_hosts(i)[0] for i in range(4)]
+    assert primeiros[0] != primeiros[1]
+    assert primeiros[0] == primeiros[2]
+    assert set(primeiros) == set(yc.HOSTS)
+
+
+def test_ordem_dos_hosts_preserva_todos_os_hosts():
+    for i in range(5):
+        assert sorted(yc.ordem_dos_hosts(i)) == sorted(yc.HOSTS)
+        assert len(yc.ordem_dos_hosts(i)) == len(yc.HOSTS)

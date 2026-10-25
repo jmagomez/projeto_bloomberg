@@ -441,6 +441,61 @@ def confere_precos_possiveis(payload: dict) -> None:
                     )
 
 
+# Séries dos painéis auxiliares cujo preenchimento é conferido contra o que já
+# está publicado. Todas dependem de um símbolo externo (Brent, câmbio, ADR) e
+# todas viram buraco no gráfico quando a fonte devolve a série pela metade.
+SERIES_AUXILIARES = (
+    ("BRENT", ("b",)),
+    ("PARES", ("adr", "onpn")),
+    ("RISCO", ("v21", "v63", "v252")),
+)
+
+# Quanto de preenchimento uma série auxiliar pode perder de uma publicação para
+# a outra. Buraco novo aparece aos poucos (um pregão sem negócio); perder uma
+# fatia grande de uma vez é a fonte servindo a série pela metade.
+QUEDA_MAXIMA_DE_COBERTURA = 0.10
+
+
+def cobertura(payload: dict, bloco: str, campo: str) -> float | None:
+    """Fração de pontos preenchidos numa série, ou ``None`` se ela não existe."""
+    serie = (payload.get(bloco) or {}).get(campo)
+    if not isinstance(serie, list) or not serie:
+        return None
+    return sum(1 for x in serie if x is not None) / len(serie)
+
+
+def confere_cobertura_auxiliar(novo: dict, anterior: dict | None) -> None:
+    """Recusa payload em que um painel auxiliar perdeu preenchimento.
+
+    O caso real, em 2026-10-25: a consulta de ``BRL=X`` voltou de um nó com a
+    série pela metade. Nada no payload ficava *impossível* — os valores que
+    sobraram estavam certos —, então nenhuma trava existente viu problema, e o
+    dashboard publicou o Brent em reais com 57% de buracos onde havia 1,4%. Com
+    a série rarefeita, o beta ao Brent exibido no topo caiu de 0,352 para 0,21:
+    um número errado, com cara de número certo.
+
+    A conferência é relativa ao publicado, e só para baixo. Série que melhora
+    passa — é assim que o dashboard se recupera sozinho de uma publicação ruim.
+    Bloco ausente não é comparado: sumir do payload é o comportamento
+    documentado quando a coleta auxiliar falha inteira, e painel que some é
+    honesto de um jeito que painel pela metade não é.
+    """
+    if not anterior:
+        return
+    for bloco, campos in SERIES_AUXILIARES:
+        for campo in campos:
+            antes = cobertura(anterior, bloco, campo)
+            agora = cobertura(novo, bloco, campo)
+            if antes is None or agora is None:
+                continue
+            if agora < antes - QUEDA_MAXIMA_DE_COBERTURA:
+                raise DadosDesatualizadosError(
+                    f"{bloco}.{campo} perdeu preenchimento: {antes:.1%} dos pontos no "
+                    f"publicado contra {agora:.1%} agora. A fonte serviu a série "
+                    "incompleta; publicar isso deixaria o painel cheio de buracos."
+                )
+
+
 def mesmo_conteudo(novo: dict, anterior: dict | None) -> bool:
     """Os dois payloads dizem a mesma coisa sobre o mercado?
 
@@ -821,6 +876,7 @@ def main() -> int:
     try:
         confere_precos_possiveis(payload)
         confere_sem_regressao(payload["stats"], anterior)
+        confere_cobertura_auxiliar(payload, anterior)
     except DadosDesatualizadosError as exc:
         print(f"[update] ERRO: {exc}", file=sys.stderr)
         return 2

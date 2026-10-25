@@ -678,3 +678,63 @@ def test_main_ainda_falha_com_o_dashboard_atrasado(monkeypatch, tmp_path, capsys
 
     assert ud.main() == 2
     assert "está parado em" in capsys.readouterr().err
+
+
+# --- painel auxiliar servido pela metade --------------------------------
+#
+# 2026-10-25: a consulta de BRL=X voltou de um nó com a série pela metade.
+# Nenhum valor ficou impossível, então nenhuma trava existente viu problema, e
+# o dashboard publicou o Brent em reais com 57% de buracos onde havia 1,4%.
+
+
+def _payload_com(bloco, campo, serie):
+    return {"stats": {"last_date": "2026-08-21", "days": 10}, bloco: {"d": [], campo: serie}}
+
+
+def test_cobertura_conta_so_os_pontos_preenchidos():
+    assert ud.cobertura(_payload_com("BRENT", "b", [1.0, None, 3.0, 4.0]), "BRENT", "b") == 0.75
+    assert ud.cobertura(_payload_com("BRENT", "b", []), "BRENT", "b") is None
+    assert ud.cobertura({"stats": {}}, "BRENT", "b") is None
+
+
+def test_serie_auxiliar_pela_metade_e_barrada():
+    cheia = [1.0] * 100
+    metade = [1.0 if i % 2 else None for i in range(100)]
+    anterior = _payload_com("BRENT", "b", cheia)
+    novo = _payload_com("BRENT", "b", metade)
+    with pytest.raises(DadosDesatualizadosError, match="perdeu preenchimento"):
+        ud.confere_cobertura_auxiliar(novo, anterior)
+
+
+def test_buraco_pequeno_novo_passa():
+    """Um pregão sem negócio no símbolo auxiliar não pode derrubar a rotina."""
+    anterior = _payload_com("PARES", "adr", [1.0] * 100)
+    novo = _payload_com("PARES", "adr", [None] + [1.0] * 99)
+    ud.confere_cobertura_auxiliar(novo, anterior)  # não levanta
+
+
+def test_serie_que_melhora_passa():
+    """É assim que o dashboard se recupera sozinho de uma publicação ruim."""
+    anterior = _payload_com("BRENT", "b", [1.0 if i % 2 else None for i in range(100)])
+    novo = _payload_com("BRENT", "b", [1.0] * 100)
+    ud.confere_cobertura_auxiliar(novo, anterior)  # não levanta
+
+
+def test_bloco_ausente_nao_e_comparado():
+    """Painel que some é o comportamento documentado quando a coleta falha."""
+    anterior = _payload_com("BRENT", "b", [1.0] * 100)
+    ud.confere_cobertura_auxiliar({"stats": {}}, anterior)  # não levanta
+    ud.confere_cobertura_auxiliar(anterior, None)  # primeira publicação
+
+
+def test_numeros_reais_do_incidente():
+    """877 pontos, 12 nulos antes e 499 depois — o caso como ele aconteceu.
+
+    A mensagem reporta preenchimento, não buraco: 98,6% contra 43,1%.
+    """
+    antes = [None if i < 12 else 1.0 for i in range(877)]
+    depois = [None if i < 499 else 1.0 for i in range(877)]
+    with pytest.raises(DadosDesatualizadosError, match=r"98\.6%.*43\.1%"):
+        ud.confere_cobertura_auxiliar(
+            _payload_com("BRENT", "b", depois), _payload_com("BRENT", "b", antes)
+        )

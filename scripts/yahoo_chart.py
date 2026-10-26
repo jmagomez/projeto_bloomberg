@@ -27,6 +27,10 @@ As defesas, nesta ordem:
    correndo ou after-market dentro da margem. A rotina só publica com o dia
    encerrado, e a trava vale para qualquer horário de disparo: o cron pede, ela
    é que garante.
+5. ``busca_serie_diaria`` repete a consulta com duas filas de espera e com os
+   hosts rotacionados (``ordem_dos_hosts``). Desde que a grade passou a ter uma
+   rodada por pregão, é aqui que mora a paciência que antes estava na segunda
+   rodada do dia.
 
 Nada é estimado, interpolado ou completado: todo número vem da resposta da fonte.
 Nenhum calendário de feriados é necessário — ``regularMarketTime`` já responde
@@ -51,9 +55,23 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (projeto_bloomberg dashboard-updater)"}
 # um host e não no outro — alternar de host costuma resolver.
 RETRIABLE_STATUS = {401, 403, 429, 500, 502, 503, 504}
 
-TENTATIVAS = 4
-ESPERA_BASE = 5.0  # segundos; dobra a cada tentativa (5, 10, 20)
 TIMEOUT = 60
+
+# Esperas, em segundos, entre tentativas. São duas filas porque são dois
+# problemas com relógios diferentes.
+#
+# ``ESPERAS_TRANSITORIO`` cobre rede ruim, 429 e 5xx: resolvem em segundos ou
+# não resolvem, e insistir muito só queima tempo.
+#
+# ``ESPERAS_PENDENCIA`` cobre o outro caso — a fonte **anuncia** um pregão em
+# ``regularMarketTime`` e serve uma série que termina antes dele. É o cache de
+# um nó do Yahoo, que normaliza em minutos, não em segundos. Enquanto a grade
+# tinha duas rodadas por pregão, a segunda, duas horas depois, era quem cobria
+# isso. A grade passou a ter uma rodada só — então a paciência que estava no
+# cron precisa estar aqui dentro. São ~7,5 min no pior caso, e só quando falta
+# alguma coisa: rodada saudável devolve na primeira tentativa e não espera nada.
+ESPERAS_TRANSITORIO = (5, 10, 20)
+ESPERAS_PENDENCIA = (30, 60, 120, 240)
 
 # Folga aceita entre os campos de uma mesma barra. O Yahoo arredonda open,
 # high, low e close separadamente, então uma barra legítima pode sair alguns
@@ -517,19 +535,25 @@ def busca_serie_diaria(
 ) -> tuple[list[dict], dict[str, float], dict, list[str]]:
     """Baixa a série diária validada.
 
-    Repete a consulta quando a resposta vem incompleta — o cache do Yahoo é por
-    nó e às vezes normaliza em segundos. Esgotadas as tentativas, devolve o que
-    conseguiu com ``estado["pendente"]`` preenchido, em vez de levantar: a
-    decisão de publicar ou não é de quem chama.
+    Repete a consulta quando a resposta vem incompleta. A fila de esperas muda
+    conforme o motivo: erro transitório é questão de segundos, cache velho de um
+    nó do Yahoo é questão de minutos (ver ``ESPERAS_PENDENCIA``). A troca é feita
+    uma vez, na primeira pendência vista, e substitui o que restava da fila curta.
+
+    Esgotadas as tentativas, devolve o que conseguiu com ``estado["pendente"]``
+    preenchido, em vez de levantar: a decisão de publicar ou não é de quem chama.
     """
     ultima_falha: Exception | None = None
     resultado = None
-    for tentativa in range(TENTATIVAS):
+    esperas = list(ESPERAS_TRANSITORIO)
+    ja_esticou = False
+    tentativa = 0
+
+    while True:
         if tentativa:
-            espera = ESPERA_BASE * 2 ** (tentativa - 1)
+            espera = esperas.pop(0)
             print(
-                f"[update] tentativa {tentativa + 1}/{TENTATIVAS} em {espera:.0f}s "
-                f"({ultima_falha})",
+                f"[update] tentativa {tentativa + 1} em {espera:.0f}s ({ultima_falha})",
                 flush=True,
             )
             time.sleep(espera)
@@ -541,13 +565,21 @@ def busca_serie_diaria(
             if not pendente:
                 return resultado
             ultima_falha = DadosDesatualizadosError("; ".join(avisos_val) or "pregão pendente")
+            if not ja_esticou:
+                # A fonte deve o pregão: troca para a fila longa e recomeça a
+                # contagem de esperas. Só uma vez — senão a rotina nunca sai.
+                esperas = list(ESPERAS_PENDENCIA)
+                ja_esticou = True
         except (ErroTransitorio, DadosDesatualizadosError) as exc:
             ultima_falha = exc
+        tentativa += 1
+        if not esperas:
+            break
 
     if resultado is not None:
         return resultado
     raise ErroTransitorio(
-        f"Yahoo Finance indisponível após {TENTATIVAS} tentativas ({ultima_falha})"
+        f"Yahoo Finance indisponível após {tentativa} tentativas ({ultima_falha})"
     ) from ultima_falha
 
 

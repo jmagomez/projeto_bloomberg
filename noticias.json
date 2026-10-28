@@ -1,5 +1,85 @@
 [
  {
+  "d": "2026-10-27",
+  "hora": "03:50",
+  "titulo": "Brazil Stocks Plunged. Should You Buy the Dip in MercadoLibre?",
+  "veiculo": "Motley Fool",
+  "link": "https://finance.yahoo.com/markets/stocks/articles/brazil-stocks-plunged-buy-dip-065002739.html",
+  "ts": 1793083802
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "19:11",
+  "titulo": "Is MercadoLibre (MELI) Undervalued On Brazil Election Risk Or Still Too Pricey?",
+  "veiculo": "Simply Wall St.",
+  "link": "https://finance.yahoo.com/markets/stocks/articles/mercadolibre-meli-undervalued-brazil-election-221106855.html",
+  "ts": 1793052666
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "17:42",
+  "titulo": "A Rout in Brazilian Financial Markets",
+  "veiculo": "The Wall Street Journal",
+  "link": "https://finance.yahoo.com/m/b20a41c2-4140-392c-ac41-e69c599f4801/a-rout-in-brazilian-financial.html",
+  "ts": 1793047327
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "17:36",
+  "titulo": "Brazilian stocks plunge after Lula's surprising election victory",
+  "veiculo": "Yahoo Finance",
+  "link": "https://finance.yahoo.com/markets/article/brazilian-stocks-plunge-after-lulas-surprising-election-victory-114325508.html",
+  "ts": 1793046990
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "13:51",
+  "titulo": "Why Petroleo Brasileiro SA Petrobras ADR Crashed Today",
+  "veiculo": "Motley Fool",
+  "link": "https://finance.yahoo.com/energy/articles/why-petroleo-brasileiro-sa-petrobras-165131711.html",
+  "ts": 1793033491
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "13:47",
+  "titulo": "Brazilian Stocks Tumble After Lula’s Shock Win. It Could Create a Buying Opportunity.",
+  "veiculo": "Barrons.com",
+  "link": "https://finance.yahoo.com/m/dfd0b482-18fe-3682-bc92-a8600f8517e0/brazilian-stocks-tumble-after.html",
+  "ts": 1793033220
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "10:55",
+  "titulo": "Petrobras Sinks 15%, MercadoLibre Down 12% as Lula’s Surprise Re-Election Rocks Brazilian Stocks",
+  "veiculo": "TIKR",
+  "link": "https://finance.yahoo.com/markets/stocks/articles/petrobras-sinks-15-mercadolibre-down-135559994.html",
+  "ts": 1793022959
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "10:22",
+  "titulo": "Brazilian Stocks Tumble as Lula Wins Surprise Fourth Term: Nu Holdings Sinks 25%, Petrobras Tumbles 21%, MercadoLibre Drops 15%",
+  "veiculo": "24/7 Wall St.",
+  "link": "https://finance.yahoo.com/markets/stocks/articles/brazilian-stocks-tumble-lula-wins-132206701.html",
+  "ts": 1793020926
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "07:32",
+  "titulo": "Chaos in Brazil Stocks After Upset Election Win",
+  "veiculo": "Barrons.com",
+  "link": "https://finance.yahoo.com/m/446a3c70-f4ae-364d-81cc-688c2e7e2830/chaos-in-brazil-stocks-after.html",
+  "ts": 1793010730
+ },
+ {
+  "d": "2026-10-26",
+  "hora": "06:38",
+  "titulo": "U.S.-listed Brazilian shares slump after shock Lula election win",
+  "veiculo": "Investing.com",
+  "link": "https://finance.yahoo.com/markets/stocks/articles/u-listed-brazilian-shares-slump-093816698.html",
+  "ts": 1793007496
+ },
+ {
   "d": "2026-10-23",
   "hora": "17:50",
   "titulo": "Petrobras (PBR) Increases Despite Market Slip: Here's What You Need to Know",

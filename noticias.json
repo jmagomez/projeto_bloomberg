@@ -1,6 +1,14 @@
 [
  {
   "d": "2026-10-29",
+  "hora": "23:15",
+  "titulo": "Petrobras Makes Third Oil Discovery Offshore Brazil's Amapá Coast",
+  "veiculo": "Oilprice.com",
+  "link": "https://finance.yahoo.com/energy/articles/petrobras-makes-third-oil-discovery-021500477.html",
+  "ts": 1793326500
+ },
+ {
+  "d": "2026-10-29",
   "hora": "12:20",
   "titulo": "Halliburton Deploys ROCS Technology With Petrobras in Brazil",
   "veiculo": "Zacks",

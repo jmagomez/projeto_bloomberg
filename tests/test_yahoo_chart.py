@@ -371,3 +371,86 @@ def test_ordem_dos_hosts_preserva_todos_os_hosts():
     for i in range(5):
         assert sorted(yc.ordem_dos_hosts(i)) == sorted(yc.HOSTS)
         assert len(yc.ordem_dos_hosts(i)) == len(yc.HOSTS)
+
+
+# --- a paciência que saiu do cron e entrou na rotina -------------------------
+#
+# A grade tinha duas rodadas por pregão: a segunda, duas horas depois, era quem
+# cobria o cache velho de um nó do Yahoo. Com uma rodada só, essa espera precisa
+# acontecer dentro da própria rodada.
+
+
+def _coletor_falso(pendencias, monkeypatch):
+    """Simula ``_uma_tentativa``: devolve pendência nas N primeiras tentativas.
+
+    Registra as esperas pedidas a ``time.sleep``, sem dormir de verdade.
+    """
+    esperas = []
+    chamadas = {"n": 0}
+    monkeypatch.setattr(yc.time, "sleep", lambda s: esperas.append(s))
+
+    def falsa(symbol, period1, tentativa):
+        chamadas["n"] += 1
+        # Enquanto "atrasada", a série termina na quinta e o meta aponta a
+        # sexta — exatamente a forma do cache velho de um nó do Yahoo.
+        atrasada = chamadas["n"] <= pendencias
+        timestamps = [TS_QUI_20] if atrasada else [TS_QUI_20, TS_SEX_21]
+        res = resposta(timestamps, MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+        return yc.extrai_pregoes(res), {}, yc.estado_do_mercado(res), []
+
+    monkeypatch.setattr(yc, "_uma_tentativa", falsa)
+    return esperas, chamadas
+
+
+def test_pendencia_troca_para_a_fila_longa(monkeypatch):
+    """Vista a pendência, as esperas deixam de ser de segundos."""
+    esperas, chamadas = _coletor_falso(pendencias=99, monkeypatch=monkeypatch)
+    _, _, estado, _ = yc.busca_serie_diaria("PETR4.SA", 0)
+    assert estado["pendente"] == "2026-08-21"  # desistiu, mas sinalizou
+    # A primeira tentativa não espera; a fila longa entra já na segunda.
+    assert esperas == list(yc.ESPERAS_PENDENCIA)
+    assert chamadas["n"] == len(yc.ESPERAS_PENDENCIA) + 1
+
+
+def test_rodada_saudavel_nao_espera_nada(monkeypatch):
+    esperas, chamadas = _coletor_falso(pendencias=0, monkeypatch=monkeypatch)
+    _, _, estado, _ = yc.busca_serie_diaria("PETR4.SA", 0)
+    assert estado["pendente"] is None
+    assert esperas == []
+    assert chamadas["n"] == 1
+
+
+def test_pendencia_que_normaliza_em_minutos_e_recuperada(monkeypatch):
+    """O caso que a segunda rodada diária cobria, agora coberto aqui dentro.
+
+    Quatro tentativas (a fila antiga) não bastavam; a quinta pega a série já
+    normalizada e a rotina publica o pregão na mesma noite.
+    """
+    esperas, chamadas = _coletor_falso(pendencias=4, monkeypatch=monkeypatch)
+    linhas, _, estado, _ = yc.busca_serie_diaria("PETR4.SA", 0)
+    assert estado["pendente"] is None
+    assert linhas[-1]["d"] == "2026-08-21"
+    assert chamadas["n"] == 5
+    assert sum(esperas) <= 450  # o orçamento de paciência, ~7,5 min
+
+
+def test_a_espera_total_e_limitada(monkeypatch):
+    """Paciência é finita: a rotina não pode prender o runner indefinidamente."""
+    esperas, _ = _coletor_falso(pendencias=99, monkeypatch=monkeypatch)
+    yc.busca_serie_diaria("PETR4.SA", 0)
+    assert sum(esperas) == sum(yc.ESPERAS_PENDENCIA)
+    assert sum(esperas) < 600
+
+
+def test_erro_transitorio_usa_a_fila_curta(monkeypatch):
+    """Rede ruim resolve em segundos ou não resolve; não merece minutos."""
+    esperas = []
+    monkeypatch.setattr(yc.time, "sleep", lambda s: esperas.append(s))
+
+    def sempre_falha(symbol, period1, tentativa):
+        raise yc.ErroTransitorio("rede")
+
+    monkeypatch.setattr(yc, "_uma_tentativa", sempre_falha)
+    with pytest.raises(yc.ErroTransitorio):
+        yc.busca_serie_diaria("PETR4.SA", 0)
+    assert esperas == list(yc.ESPERAS_TRANSITORIO)

@@ -557,8 +557,14 @@ def test_situacao_cache_velho_com_dashboard_em_dia():
 
 
 def test_situacao_dashboard_realmente_atrasado_e_falha():
-    """A pendência que importa: a fonte deve um pregão e o dashboard não o tem."""
-    assert ud.situacao_da_coleta("2026-10-09", "2026-10-09", "2026-10-13") == "atrasado"
+    """A pendência que importa: velha, e o dashboard parado nela.
+
+    Dois dias depois do pregão pendente já significa que a rodada seguinte
+    também não conseguiu. Aí o alarme tem o que informar.
+    """
+    assert (
+        ud.situacao_da_coleta("2026-10-09", "2026-10-09", "2026-10-13", "2026-10-15") == "atrasado"
+    )
 
 
 def test_situacao_avanco_parcial_ainda_publica():
@@ -678,3 +684,61 @@ def test_main_ainda_falha_com_o_dashboard_atrasado(monkeypatch, tmp_path, capsys
 
     assert ud.main() == 2
     assert "está parado em" in capsys.readouterr().err
+
+
+# --- fonte atrasada não é rotina quebrada (runs #111 e #113) ------------------
+
+
+def test_situacao_pendencia_do_dia_apenas_aguarda():
+    """O caso real das rodadas #111 (27/10) e #113 (28/10).
+
+    A fonte anuncia o pregão que acabou de fechar, serve uma série terminando no
+    anterior, e o dashboard está nesse anterior. Nas duas vezes a rodada seguinte
+    publicou normalmente. Isso é fonte atrasada, não rotina quebrada.
+    """
+    assert (
+        ud.situacao_da_coleta("2026-10-27", "2026-10-27", "2026-10-28", "2026-10-28") == "aguarda"
+    )
+
+
+def test_situacao_aguarda_sobrevive_a_rodada_que_vira_a_meia_noite():
+    """A rodada atrasa na fila e executa às 00:20 de Brasília: ainda é fresca."""
+    assert (
+        ud.situacao_da_coleta("2026-10-27", "2026-10-27", "2026-10-28", "2026-10-29") == "aguarda"
+    )
+
+
+def test_situacao_pendencia_que_sobrevive_a_rodada_seguinte_e_falha():
+    """Dois dias é uma rodada que já tentou e não conseguiu."""
+    assert (
+        ud.situacao_da_coleta("2026-10-27", "2026-10-27", "2026-10-28", "2026-10-30") == "atrasado"
+    )
+
+
+def test_situacao_feriado_longo_nao_muda_nada():
+    """A medida é contra hoje, não contra o publicado — Carnaval não interfere.
+
+    Sexta publicada, pregão seguinte só na quinta (seis dias de calendário): a
+    pendência da quinta, vista na quinta, continua sendo fresca.
+    """
+    assert (
+        ud.situacao_da_coleta("2026-02-13", "2026-02-13", "2026-02-19", "2026-02-19") == "aguarda"
+    )
+
+
+def test_situacao_sem_hoje_mantem_o_comportamento_antigo():
+    """Sem a data de hoje não dá para medir idade; na dúvida, alarma."""
+    assert ud.situacao_da_coleta("2026-10-27", "2026-10-27", "2026-10-28") == "atrasado"
+
+
+def test_data_de_hoje_na_b3_usa_o_fuso_da_bolsa(monkeypatch):
+    """23:30 UTC ainda é o dia anterior em Brasília."""
+    import datetime as _dt
+
+    class _Fixo(_dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return _dt.datetime(2026, 10, 29, 1, 30, tzinfo=_dt.UTC)
+
+    monkeypatch.setattr(ud, "datetime", _Fixo)
+    assert ud.data_de_hoje_na_b3() == "2026-10-28"

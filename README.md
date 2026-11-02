@@ -82,6 +82,36 @@ rodada do dia falhar, a do dia seguinte recupera sozinha — a série é baixada
 inteira, não incrementalmente — e o e-mail de falha avisa. Para recuperar na
 hora, o disparo manual continua na aba Actions.
 
+### Fonte atrasada não é rotina quebrada
+
+Tirada a segunda rodada, sobraram duas falhas — #111 (27/10) e #113 (28/10) —
+com a mesma assinatura: a fonte anuncia em `regularMarketTime` o pregão que
+acabou de fechar, serve uma série que termina no anterior, e o dashboard está
+justamente nesse anterior. Nas duas vezes a rodada seguinte publicou o pregão
+normalmente. O dashboard nunca exibiu número errado; o que houve foi um e-mail
+de erro sobre um fato alheio, numa noite em que não havia ação possível.
+
+`situacao_da_coleta` passou a medir **há quanto tempo** a pendência existe:
+
+| desfecho | quando | saída |
+| --- | --- | --- |
+| `publica` | a coleta avançou | 0 |
+| `em_dia` | cache velho, dashboard já tem o pregão | 0 |
+| `aguarda` | a pendência é do pregão que acabou de fechar | 0, com `::warning::` |
+| `atrasado` | a mesma pendência sobreviveu à rodada seguinte | 2, e-mail de erro |
+
+A idade é medida contra **hoje no fuso da B3**, não contra o que está
+publicado. Entre dois pregões consecutivos cabem de 1 a 6 dias de calendário
+(fim de semana, feriado, Carnaval), e medir contra o publicado exigiria o
+calendário de feriados que este projeto faz questão de não ter. `pendente` é
+uma data de pregão afirmada pela própria fonte: se é de hoje, é fresca. A
+tolerância é de 1 dia, não 0, porque a rodada atrasa na fila e às vezes executa
+depois da meia-noite de Brasília, quando a data da bolsa já virou e o pregão em
+questão continua sendo o da véspera.
+
+Nada é escrito no caso `aguarda` — e é por isso que ele não gera e-mail de
+fechamento repetido: sem mudança em `data.js`, o passo de e-mail nem roda.
+
 ### O e-mail segue o `data.js`, não o commit
 
 O acervo de manchetes cresce por conta própria, e uma rodada em que só
@@ -227,11 +257,12 @@ python scripts/update_dashboard.py
 ```
 
 Códigos de saída: `0` sucesso — publicou, ou não havia o que publicar (nada
-mudou desde a última vez, ou a fonte serviu cache velho com o dashboard já em
-dia) · `2` a fonte deve um pregão e o dashboard **está parado atrás dele** —
-nada foi escrito · `3` fonte indisponível · `9` a bolsa ainda estava operando e
-a rotina desistiu sem escrever nada (rodar de novo depois do fechamento, ou
-`FORCAR_PREGAO_ABERTO=1` para publicar mesmo assim).
+mudou desde a última vez; a fonte serviu cache velho com o dashboard já em dia;
+ou a fonte ainda deve o pregão que acabou de fechar e a rotina aguarda a
+próxima rodada) · `2` a fonte deve um pregão e o dashboard **está parado atrás
+dele há mais de uma rodada** — nada foi escrito · `3` fonte indisponível · `9` a
+bolsa ainda estava operando e a rotina desistiu sem escrever nada (rodar de novo
+depois do fechamento, ou `FORCAR_PREGAO_ABERTO=1` para publicar mesmo assim).
 
 Nos casos de saída `0` em que nada foi escrito, o workflow não commita e não
 manda e-mail. O e-mail do pregão só sai quando o `data.js` de fato mudou — uma

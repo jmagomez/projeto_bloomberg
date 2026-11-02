@@ -102,6 +102,13 @@ SYMBOL_ADR = "PBR-A"  # ADR da preferencial
 # 2,025 — mas um reagrupamento futuro passaria despercebido sem a conferência.
 ACOES_POR_ADR = 2
 
+# Quantos dias de calendário uma pendência da fonte pode ter antes de virar
+# alarme. 1, e não 0, porque a rodada atrasa na fila do GitHub e às vezes
+# executa depois da meia-noite de Brasília, quando a data da bolsa já virou e o
+# pregão em questão continua sendo o da véspera. Dois dias já significam que a
+# rodada seguinte também não conseguiu — aí o dashboard está parado de verdade.
+DIAS_DE_TOLERANCIA_DA_PENDENCIA = 1
+
 # Quantos pregões entram na triagem histórica (bloco SESSOES). ~6 semanas: o
 # bastante para o analista ver quais dias tiveram componente idiossincrático sem
 # transformar o painel numa lista infinita.
@@ -466,27 +473,65 @@ def mesmo_conteudo(novo: dict, anterior: dict | None) -> bool:
     return limpo(novo) == limpo(anterior)
 
 
-def situacao_da_coleta(ultimo_coletado: str, publicado: str, pendente: str | None) -> str:
-    """O que fazer quando a fonte diz dever um pregão: ``publica``,
-    ``em_dia`` ou ``atrasado``.
+def data_de_hoje_na_b3() -> str:
+    """A data de calendário de agora, no fuso da B3.
 
-    A distinção que faltava. A pergunta certa não é "a coleta avançou?", e sim
-    **"o dashboard está atrás da fonte?"**. Quando o Yahoo serve um nó com cache
-    velho — devolvendo uma série que termina dias antes do pregão que ele mesmo
-    reporta — a coleta de fato não avança; mas se o dashboard já publicou aquele
-    pregão, não há nada errado e não há nada a fazer.
+    Não serve para datar pregão — isso vem da fonte. Serve só para medir há
+    quanto tempo uma pendência existe, e por isso precisa ser a data da bolsa:
+    uma rodada que atrasa na fila e executa às 00:20 de Brasília ainda está
+    tratando do pregão da véspera.
+    """
+    return (datetime.now(UTC) + timedelta(seconds=nt.OFFSET_B3)).strftime("%Y-%m-%d")
 
-    A versão anterior tratava esse caso como falha, e era exatamente o caso que
-    ocorria todo dia na segunda rodada: 24 das 63 rodadas entre 15/09 e 23/10
-    terminaram com "a coleta não avança além do que já está publicado" — todas
-    com o dashboard correto e em dia. Um alarme que dispara num dia normal
-    ensina a ignorar o alarme.
+
+def _dias_entre(de: str, ate: str) -> int:
+    return (date.fromisoformat(ate) - date.fromisoformat(de)).days
+
+
+def situacao_da_coleta(
+    ultimo_coletado: str,
+    publicado: str,
+    pendente: str | None,
+    hoje: str = "",
+    tolerancia: int = DIAS_DE_TOLERANCIA_DA_PENDENCIA,
+) -> str:
+    """O que fazer quando a fonte diz dever um pregão: ``publica``, ``em_dia``,
+    ``aguarda`` ou ``atrasado``. Só o último é falha.
+
+    A primeira distinção que faltava. A pergunta certa não é "a coleta
+    avançou?", e sim **"o dashboard está atrás da fonte?"**. Quando o Yahoo
+    serve um nó com cache velho — devolvendo uma série que termina dias antes do
+    pregão que ele mesmo reporta — a coleta de fato não avança; mas se o
+    dashboard já publicou aquele pregão, não há nada errado e nada a fazer
+    (``em_dia``).
+
+    A segunda distinção, que faltava depois dessa: **há quanto tempo** a
+    pendência existe. Nas rodadas #111 (27/10) e #113 (28/10) a fonte anunciou
+    um pregão, serviu uma série terminando no anterior, e o dashboard estava
+    justamente nesse anterior. A rotina chamou isso de falha e mandou e-mail de
+    erro — nas duas vezes a rodada seguinte publicou o pregão normalmente. Fonte
+    atrasada não é rotina quebrada: é fato alheio, sobre o qual não há ação
+    possível naquela noite, e alarme sem ação possível é alarme que se aprende a
+    ignorar.
+
+    Por isso ``aguarda``: a pendência é do pregão que acabou de fechar, a
+    próxima rodada resolve, e o desfecho é aviso, não falha. ``atrasado`` fica
+    para quando a mesma pendência sobrevive à rodada seguinte — aí o dashboard
+    está de fato parado, e aí o alarme tem o que informar.
+
+    A medida é contra **hoje**, não contra o que está publicado: entre dois
+    pregões consecutivos pode haver de 1 a 6 dias de calendário (fim de semana,
+    feriado, Carnaval), e comparar com o publicado exigiria um calendário de
+    feriados que este projeto faz questão de não ter. ``pendente`` é uma data de
+    pregão que a própria fonte afirma; se ela é de hoje, é fresca.
     """
     if not pendente:
         return "publica"
     if publicado and publicado >= pendente:
         return "em_dia"
     if ultimo_coletado <= publicado:
+        if hoje and _dias_entre(pendente, hoje) <= tolerancia:
+            return "aguarda"
         return "atrasado"
     return "publica"
 
@@ -765,8 +810,8 @@ def main() -> int:
     publicado = (anterior or {}).get("stats", {}).get("last_date", "")
     pendente = estado.get("pendente")
 
-    # Pregão pendente na fonte. Três desfechos possíveis, e só um é falha.
-    situacao = situacao_da_coleta(linhas[-1]["d"], publicado, pendente)
+    # Pregão pendente na fonte. Quatro desfechos possíveis, e só um é falha.
+    situacao = situacao_da_coleta(linhas[-1]["d"], publicado, pendente, data_de_hoje_na_b3())
     if situacao == "em_dia":
         print(
             f"::notice::A fonte informa o pregão de {pendente} e serviu uma série que "
@@ -774,10 +819,19 @@ def main() -> int:
             f"já publicou até {publicado}, então não há o que fazer. Nada foi escrito."
         )
         return 0
+    if situacao == "aguarda":
+        print(
+            f"::warning::A fonte informa que o pregão de {pendente} fechou e não o "
+            f"entregou; o dashboard segue em {publicado}. Como a pendência é do pregão "
+            "que acabou de fechar, a rodada apenas aguarda — a próxima publica. Nada "
+            "foi escrito, e o dashboard continua exibindo o último dado íntegro."
+        )
+        return 0
     if situacao == "atrasado":
         print(
             f"[update] ERRO: a fonte informa o pregão de {pendente}, não o entregou, "
-            f"e o dashboard está parado em {publicado}. Nada foi escrito.",
+            f"e o dashboard está parado em {publicado} há mais de uma rodada. "
+            "Nada foi escrito.",
             file=sys.stderr,
         )
         return 2

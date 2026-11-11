@@ -1,5 +1,37 @@
 [
  {
+  "d": "2026-11-10",
+  "hora": "20:43",
+  "titulo": "Petrobras: Q3 Earnings Snapshot",
+  "veiculo": "Associated Press",
+  "link": "https://finance.yahoo.com/markets/stocks/articles/petrobras-q3-earnings-snapshot-234323106.html",
+  "ts": 1794354203
+ },
+ {
+  "d": "2026-11-09",
+  "hora": "09:52",
+  "titulo": "Petrobras Signs 3-Year Deal With RINA for Subsea Asset Management",
+  "veiculo": "Zacks",
+  "link": "https://finance.yahoo.com/energy/articles/petrobras-signs-3-deal-rina-125200224.html",
+  "ts": 1794228720
+ },
+ {
+  "d": "2026-11-09",
+  "hora": "08:49",
+  "titulo": "Paratus Energy: Update regarding the Petrobras Tender Process",
+  "veiculo": "PR Newswire",
+  "link": "https://finance.yahoo.com/energy/articles/paratus-energy-regarding-petrobras-tender-114900318.html",
+  "ts": 1794224940
+ },
+ {
+  "d": "2026-11-09",
+  "hora": "08:43",
+  "titulo": "Paratus Energy: Update regarding the Petrobras Tender Process",
+  "veiculo": "PR Newswire",
+  "link": "https://finance.yahoo.com/energy/articles/paratus-energy-regarding-petrobras-tender-114300828.html",
+  "ts": 1794224580
+ },
+ {
   "d": "2026-11-06",
   "hora": "11:43",
   "titulo": "Petrobras Strengthens Oil Spill Response With New Vessel Charter",

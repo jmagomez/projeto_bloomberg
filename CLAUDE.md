@@ -7,7 +7,7 @@ Leia antes de mexer em qualquer coisa. O que está aqui não é resumo do README
 
 Um pipeline de coleta em Python que publica um `data.js` estático, e um
 `index.html` que o lê. O valor está na **camada de dados e nas suas defesas**,
-não na renderização. Quatro incidentes moldaram o código; cada defesa tem um
+não na renderização. Cinco incidentes moldaram o código; cada defesa tem um
 docstring que diz qual incidente a pediu. Antes de "simplificar" uma checagem,
 leia o docstring dela.
 
@@ -28,9 +28,18 @@ leia o docstring dela.
 5. **Alarme só quando há ação possível.** Fonte atrasada numa noite é aviso, não
    falha. Um alarme que toca em dia normal ensina a ignorar o alarme — foi assim
    que 34 rodadas falharam sem que nada estivesse errado.
-6. **Português.** Código, comentários, docstrings, testes e mensagens de commit.
+6. **O que sai para fora não pode afirmar mais do que se sabe.** E-mail, assunto
+   de e-mail e cartão do dashboard precisam dizer quando o dado está incompleto.
+   Número certo com rótulo que induz a erro é erro. Foi o incidente de 26/11: o
+   assunto "pregão de 2026-11-24" estava correto e mesmo assim se lia como o
+   fechamento da véspera, porque chegava de madrugada e a data vinha depois da
+   cotação. Quando há `pending_session`, a ressalva vem **antes** do número.
+7. **Nada que vá para o e-mail é montado em expressão de YAML.** Assunto, título
+   e avisos saem de `emit_summary.py`, porque expressão de YAML não tem teste — e
+   foi exatamente no assunto, onde não havia teste, que o defeito de 26/11 morou.
+8. **Português.** Código, comentários, docstrings, testes e mensagens de commit.
    Nomes de função em português; termos técnicos consagrados ficam em inglês.
-7. **Nenhum teste toca a rede.** Sem exceção.
+9. **Nenhum teste toca a rede.** Sem exceção.
 
 ## Contrato de saída de `update_dashboard.py`
 
@@ -42,6 +51,32 @@ leia o docstring dela.
 | 9 | bolsa operando; nada foi escrito | job **verde**, passos seguintes pulados |
 
 Mudar esses códigos exige mudar o workflow junto.
+
+## Contrato de `emit_summary.py` com o workflow
+
+O passo de e-mail consome estes outputs; mudar nome ou semântica de qualquer um
+quebra o workflow em silêncio (expressão de YAML não resolvida vira string
+vazia, não erro):
+
+| output | papel |
+| --- | --- |
+| `assunto` | o assunto inteiro, já com a ressalva na frente se houver pendência |
+| `titulo` | o `<h2>` do corpo |
+| `banner_pendencia` | bloco HTML de aviso, ou string vazia |
+| `pendente` | a data pendente, ou string vazia |
+
+Todo valor é **uma linha só**: `$GITHUB_OUTPUT` é `chave=valor` por linha e
+quebra com qualquer `\n`. Há teste cobrindo isso para todos os campos, nos dois
+estados.
+
+## Os quatro desfechos de `situacao_da_coleta`
+
+Antes de mexer: `publica`, `em_dia` e `aguarda` saem com 0; só `atrasado` é
+falha. A idade da pendência é medida contra **hoje no fuso da B3**, nunca contra
+o que está publicado — entre dois pregões consecutivos cabem de 1 a 6 dias de
+calendário, e medir contra o publicado traria de volta o calendário de feriados
+que a regra 2 proíbe.
+
 
 ## Workflows
 

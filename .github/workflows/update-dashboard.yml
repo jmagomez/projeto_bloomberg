@@ -124,11 +124,15 @@ jobs:
           secure: true
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "PETR4 R$ ${{ steps.resumo.outputs.last_close }} (${{ steps.resumo.outputs.var_dia }}% no dia) — pregão de ${{ steps.resumo.outputs.last_date }}"
+          # Assunto e título vêm montados de emit_summary.py, não de expressão
+          # de YAML: quando a fonte deve o pregão do dia, os dois precisam dizer
+          # isso, e isso precisa ter teste. Ver o docstring do módulo.
+          subject: ${{ steps.resumo.outputs.assunto }}
           to: jmagomez@gmail.com
           from: "Projeto Bloomberg <${{ secrets.MAIL_USERNAME }}>"
           html_body: |
-            <h2 style="margin-bottom:4px">PETR4 — pregão de ${{ steps.resumo.outputs.last_date }}</h2>
+            ${{ steps.resumo.outputs.banner_pendencia }}
+            <h2 style="margin-bottom:4px">${{ steps.resumo.outputs.titulo }}</h2>
             <p style="margin:0 0 16px;font-size:28px;font-weight:600;color:${{ steps.resumo.outputs.cor_dia }}">
               R$ ${{ steps.resumo.outputs.last_close }}
               <span style="font-size:16px">${{ steps.resumo.outputs.seta_dia }} ${{ steps.resumo.outputs.var_dia }}% no dia</span>

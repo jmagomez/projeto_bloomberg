@@ -120,6 +120,35 @@ casos: commita o que mudou, mas só manda o e-mail do pregão quando `data.js`
 mudou. Sem essa distinção, um dia sem pregão novo mas com manchete nova
 anunciaria de novo o fechamento da véspera.
 
+### E o assunto do e-mail diz quando o dado está incompleto
+
+"`data.js` mudou" ainda não é a pergunta toda. Em 26/11/2026 a fonte devia o
+pregão de 25/11, serviu a série até 24/11, e a rotina publicou esse avanço
+parcial — corretamente: avançar é melhor que ficar parado, e o dashboard já
+sinaliza a pendência num aviso. O e-mail, que não sabia nada disso, saiu com o
+assunto **"PETR4 R$ 40,55 (−1,82% no dia) — pregão de 2026-11-24"** numa noite
+em que o pregão do dia era o de 25/11.
+
+O número nunca esteve errado e a data sempre esteve no assunto. O problema é de
+leitura: chegando de madrugada, com a cotação em destaque, esse assunto se lê
+como "o fechamento de ontem" — e era o de dois dias antes. Em notificação de
+celular, que mostra só o começo, não havia como perceber.
+
+A ressalva passou a vir **na frente**:
+
+```
+⚠️ PETR4 incompleto — a fonte ainda deve o pregão de 2026-11-25;
+   o dashboard vai até 2026-11-24 (R$ 40.55)
+```
+
+e o corpo ganha um bloco de aviso antes de qualquer número, dizendo o que falta,
+o que há, e que nada ali foi estimado. Sem pendência, assunto e corpo seguem
+exatamente como eram.
+
+Assunto e título são montados em `emit_summary.py`, não em expressão de YAML —
+que é o que permite ter teste para os dois estados. Expressão de YAML não se
+testa, e foi justamente no assunto, onde não havia teste, que o defeito morou.
+
 ### A rotina só roda com a bolsa fechada
 
 A rodada agendada cai fora do pregão, e isso é verificável na própria grade: a

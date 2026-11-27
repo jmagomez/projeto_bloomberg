@@ -35,9 +35,16 @@ leia o docstring dela.
    codificar feriados da B3, a resposta é: pergunte à fonte.
 5. **A rotina só publica com o pregão encerrado.** O cron pede; `pregao_em_curso`
    é que garante. Vale para qualquer horário de disparo.
-6. **Uma rodada por pregão, depois do fechamento.** Não acrescente repescagem.
-   Isso já foi feito e desfeito: a segunda rodada multiplicava commit e alarme.
-   A paciência vive dentro da rodada (`ESPERAS_PENDENCIA`), não no cron.
+6. **Uma rodada por pregão, na manhã seguinte.** Cron `47 5 * * 2-6` (05:47
+   UTC, terça a sábado — a rodada trata do pregão da véspera). Não acrescente
+   repescagem: já foi feito e desfeito, a segunda rodada multiplicava commit e
+   alarme. A paciência vive dentro da rodada (`ESPERAS_PENDENCIA`), não no cron.
+   **O horário tem um teto que não é estético:** a fila do Actions atrasa de 2 a
+   7 h, então 05:47 + 7 h = 12:47 UTC, treze minutos antes da abertura. Qualquer
+   cron mais tarde arrisca executar com o pregão em curso, e aí `pregao_em_curso`
+   pula o dia inteiro. E um **piso** de 09:47 UTC, num passo do workflow, segura
+   a rodada que chegou cedo — efetivo é cron + fila, e fila não se controla; o
+   que dá para garantir é o mínimo.
 7. **Alarme só quando há ação possível.** Fonte atrasada numa noite é aviso, não
    falha. Um alarme que toca em dia normal ensina a ignorar o alarme — foi assim
    que 34 rodadas falharam sem que nada estivesse errado.

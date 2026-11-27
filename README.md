@@ -35,9 +35,10 @@ projeto_bloomberg/
 `scripts/update_dashboard.py` baixa a série diária da PETR4 desde 2010 no Yahoo
 Finance (preço e proventos), busca o Ibovespa (`^BVSP`) para a comparação,
 calcula os indicadores e escreve `data.js`. O GitHub Actions roda a rotina
-**uma vez por pregão, todo dia útil às 18:47 de Brasília**, depois do
-fechamento e do after-market da B3, commita o `data.js` e envia um e-mail com o
-resumo do pregão.
+**uma vez por pregão, na manhã seguinte**, commita o `data.js` e envia um
+e-mail com o resumo do pregão. O cron dispara às 05:47 UTC de terça a sábado —
+terça a sábado porque a rodada trata do pregão do dia anterior, e a de sábado
+cobre a sexta.
 
 Os minutos são deliberadamente estranhos. `:00` e `:30` são os horários mais
 disputados na fila do GitHub Actions e o enfileiramento aqui chegou a atrasar a
@@ -223,12 +224,35 @@ passar a ser a fonte inteira.
 
 ### A rotina só roda com a bolsa fechada
 
-A rodada agendada cai fora do pregão, e isso é verificável na própria grade: a
-B3 negocia das 13:00 às 20:00 UTC e o único horário agendado (21:47 UTC) está
-fora dessa janela com folga de horas — de propósito, para que nem o atraso de
-enfileiramento nem um erro no campo de dia da semana coloquem a rodada dentro
-da sessão. O atraso típico da fila hoje é de cerca de duas horas, o que põe a
-execução perto de 00:00 UTC; a abertura seguinte só vem às 13:00 UTC.
+A rodada agendada cai fora do pregão, e isso é aritmética verificável. A B3
+negocia das 13:00 às 20:00 UTC; o cron dispara às 05:47 UTC e a fila do GitHub
+Actions atrasa de 2 a 7 horas, medido neste repositório. Logo a execução começa
+entre 07:47 e 12:47 UTC — **mesmo no pior atraso observado, ainda 13 minutos
+antes da abertura.** Foi esse pior caso que escolheu o horário: qualquer cron
+mais tarde arriscaria executar com o pregão em curso, e aí a trava pularia o
+dia inteiro.
+
+### Um piso de horário, não um horário fixo
+
+A rotina rodava às 18:47 de Brasília, logo após o fechamento. Mudou para a
+manhã seguinte por um motivo medido: em 58 rodadas entre 15/09 e 27/11, **21%
+publicaram um pregão atrás**, porque o Yahoo anuncia o pregão horas antes de
+servir a barra diária. Em 27/11 a barra de 26/11 não existia às 00:55 de
+Brasília e já existia às 14:30. Rodar de manhã dá à fonte a noite inteira.
+
+O horário efetivo, porém, não é um parâmetro: ele é cron + fila, e a fila não é
+nossa. O que dá para garantir é um **piso**. Um passo do workflow segura a
+rodada que chegou cedo até 09:47 UTC:
+
+| começa | faz |
+| --- | --- |
+| 07:47 | espera 2 h, publica 09:47 |
+| 09:46 | espera 1 min, publica 09:47 |
+| 09:47 ou depois | segue direto, sem esperar |
+
+Na maior parte das rodadas o `sleep` é zero. O teto de 3 h existe para nunca
+prender um runner por acidente, e 09:47 está longe o bastante da abertura para
+que a espera jamais empurre a rodada para dentro do pregão.
 
 Mas horário de cron é pedido, não garantia. A garantia é uma trava no código:
 `pregao_em_curso` lê `currentTradingPeriod` da própria resposta da fonte e a

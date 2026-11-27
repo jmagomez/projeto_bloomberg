@@ -16,30 +16,43 @@ leia o docstring dela.
 1. **Não invente número.** Nenhum preço é estimado, interpolado ou completado.
    Se a fonte não entregou, a série não alcança aquele pregão e a pendência é
    sinalizada. Publicar um pregão com número inventado é pior do que publicá-lo
-   um dia depois.
-2. **Nenhum calendário de feriados.** `meta.regularMarketTime` já responde "qual
+   um dia depois. Ler o mesmo número em **outra resposta da mesma fonte** não é
+   inventar — é o que `recompoe_barra_ausente` faz, e cada campo dela continua
+   sendo um número publicado pela fonte para aquele pregão.
+2. **Antes de acrescentar fonte, esgote a que já existe.** O defeito mais
+   frequente (21% das rodadas) era um único campo ausente — a abertura — e a
+   mesma API o tinha em outro intervalo. Stooq bloqueia automação; Alpha Vantage
+   e brapi revendem o mesmo dado de origem; só a COTAHIST da B3 seria autoridade
+   de verdade, e é integração pesada. Segunda fonte só se o problema deixar de
+   ser um campo e passar a ser a fonte inteira.
+3. **Do intradiário, só a abertura.** Medido: a série de 5 min termina às 16:55 e
+   perde o leilão de fechamento — fechamento −1,53%, máxima −1,39%, volume
+   −24,7% no pregão de 26/11/2026. Fechamento, máxima, mínima e volume vêm do
+   `meta`, que é pós-leilão. Reconstruir o dia inteiro do intradiário é a
+   armadilha óbvia deste projeto.
+4. **Nenhum calendário de feriados.** `meta.regularMarketTime` já responde "qual
    foi o último pregão" em feriados e emendas. Toda vez que alguém for tentado a
    codificar feriados da B3, a resposta é: pergunte à fonte.
-3. **A rotina só publica com o pregão encerrado.** O cron pede; `pregao_em_curso`
+5. **A rotina só publica com o pregão encerrado.** O cron pede; `pregao_em_curso`
    é que garante. Vale para qualquer horário de disparo.
-4. **Uma rodada por pregão, depois do fechamento.** Não acrescente repescagem.
+6. **Uma rodada por pregão, depois do fechamento.** Não acrescente repescagem.
    Isso já foi feito e desfeito: a segunda rodada multiplicava commit e alarme.
    A paciência vive dentro da rodada (`ESPERAS_PENDENCIA`), não no cron.
-5. **Alarme só quando há ação possível.** Fonte atrasada numa noite é aviso, não
+7. **Alarme só quando há ação possível.** Fonte atrasada numa noite é aviso, não
    falha. Um alarme que toca em dia normal ensina a ignorar o alarme — foi assim
    que 34 rodadas falharam sem que nada estivesse errado.
-6. **O que sai para fora não pode afirmar mais do que se sabe.** E-mail, assunto
+8. **O que sai para fora não pode afirmar mais do que se sabe.** E-mail, assunto
    de e-mail e cartão do dashboard precisam dizer quando o dado está incompleto.
    Número certo com rótulo que induz a erro é erro. Foi o incidente de 26/11: o
    assunto "pregão de 2026-11-24" estava correto e mesmo assim se lia como o
    fechamento da véspera, porque chegava de madrugada e a data vinha depois da
    cotação. Quando há `pending_session`, a ressalva vem **antes** do número.
-7. **Nada que vá para o e-mail é montado em expressão de YAML.** Assunto, título
+9. **Nada que vá para o e-mail é montado em expressão de YAML.** Assunto, título
    e avisos saem de `emit_summary.py`, porque expressão de YAML não tem teste — e
    foi exatamente no assunto, onde não havia teste, que o defeito de 26/11 morou.
-8. **Português.** Código, comentários, docstrings, testes e mensagens de commit.
+10. **Português.** Código, comentários, docstrings, testes e mensagens de commit.
    Nomes de função em português; termos técnicos consagrados ficam em inglês.
-9. **Nenhum teste toca a rede.** Sem exceção.
+11. **Nenhum teste toca a rede.** Sem exceção.
 
 ## Contrato de saída de `update_dashboard.py`
 
@@ -75,7 +88,7 @@ Antes de mexer: `publica`, `em_dia` e `aguarda` saem com 0; só `atrasado` é
 falha. A idade da pendência é medida contra **hoje no fuso da B3**, nunca contra
 o que está publicado — entre dois pregões consecutivos cabem de 1 a 6 dias de
 calendário, e medir contra o publicado traria de volta o calendário de feriados
-que a regra 2 proíbe.
+que a regra 4 proíbe.
 
 
 ## Workflows

@@ -149,6 +149,78 @@ Assunto e título são montados em `emit_summary.py`, não em expressão de YAML
 que é o que permite ter teste para os dois estados. Expressão de YAML não se
 testa, e foi justamente no assunto, onde não havia teste, que o defeito morou.
 
+### O pregão que a fonte anuncia e não entrega
+
+É o defeito mais frequente da fonte, e o mais caro: **21% das rodadas entre
+15/09 e 27/11 publicaram um pregão atrás** — sempre exatamente um, sempre
+porque o Yahoo reportava o pregão em `meta.regularMarketTime` e omitia a barra
+diária. Diferente do incidente de 28/08, aqui a barra não vem incompleta: ela
+não existe, não há nem `timestamp` para o dia.
+
+Medido em 27/11, com o pregão de 26/11 ainda faltando às 00:55 de Brasília e já
+presente às 14:30: a fonte leva horas para consolidar, e nenhuma espera razoável
+dentro de uma rodada cobre isso.
+
+**O `meta` já traz quatro dos cinco campos**, e já consolidados, depois do
+leilão: `regularMarketPrice`, `regularMarketDayHigh`, `regularMarketDayLow` e
+`regularMarketVolume`. Faltava só a abertura — e os 29 campos do `meta`,
+conferidos um a um em 27/11, não têm nenhum de abertura. Era por isso que a
+recomposição não existia.
+
+A abertura veio da **série intradiária da mesma fonte**. Comparando a primeira
+barra de 5 min com a abertura oficial em 60 pregões:
+
+| | |
+| --- | --- |
+| pregões comparados | 60 |
+| abertura idêntica à oficial | **59** |
+| maior divergência | 0,22% (2026-11-16) |
+
+O único desvio é justamente aquele em que a primeira barra só aparece às 10:50 —
+a série perdeu a abertura, e o primeiro negócio disponível já não era o do
+leilão. As barras boas começam às 10:00 (39×), 10:05 (18×) e 10:10 (1×); as
+ruins, às 10:45 e 10:50. Daí a guarda: a primeira barra precisa começar dentro
+de **15 minutos** do início do pregão, lido da própria resposta.
+
+**Só a abertura vem do intradiário**, e isso é medido, não suposto. No pregão de
+26/11 a série de 5 min termina às 16:55 e perde o leilão de fechamento:
+
+| campo | oficial | derivado do intradiário | erro |
+| --- | ---: | ---: | ---: |
+| abertura | 42,61 | 42,61 | **0,00%** |
+| máxima | 44,00 | 43,39 | −1,39% |
+| mínima | 42,32 | 42,32 | 0,00% |
+| fechamento | 43,19 | 42,53 | −1,53% |
+| volume | 43.533.300 | 32.793.000 | −24,67% |
+
+Reconstruir o dia inteiro a partir do intradiário é a armadilha óbvia aqui. A
+abertura é a única coisa que o leilão de fechamento não contamina.
+
+Nada é estimado: cada campo continua sendo um número que a fonte publicou para
+aquele pregão. O que muda é de qual resposta ele vem. A barra recomposta sai
+marcada (`c_de_meta`, `o_de_intradiario`), e as coerências de sempre valem entre
+as duas respostas — máxima ≥ mínima, fechamento e abertura dentro da faixa. Se
+não fecharem, a barra não é montada e a pendência permanece.
+
+A quarta requisição (o intradiário) só acontece quando falta pregão. Rodada
+saudável não paga por ela.
+
+### Por que não uma segunda fonte
+
+A pergunta natural é trocar ou duplicar a fonte. Avaliado em 27/11:
+
+| candidata | veredito |
+| --- | --- |
+| **Stooq** | o endpoint de CSV responde `Access denied` a acesso automatizado. Fora. |
+| **Alpha Vantage, brapi.dev** | revendem o mesmo dado de origem. Acrescentam disponibilidade, não autoridade — e exigem chave, sem evidência de que sejam mais rápidas para a B3. |
+| **COTAHIST da B3** | a única genuinamente **a montante** do Yahoo, e a única que seria autoridade de verdade. Integração pesada (ZIP de registros de largura fixa) e não validada daqui. |
+
+Nenhuma delas é necessária se o buraco pode ser tapado com o que a fonte atual
+já publica — e podia: faltava **um campo**, e a mesma API o tinha em outro
+intervalo. Antes de acrescentar fornecedor, esgote o que o atual já entrega. A
+porta para a COTAHIST fica aberta se um dia o problema deixar de ser um campo e
+passar a ser a fonte inteira.
+
 ### A rotina só roda com a bolsa fechada
 
 A rodada agendada cai fora do pregão, e isso é verificável na própria grade: a

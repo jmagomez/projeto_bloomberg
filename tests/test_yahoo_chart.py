@@ -454,3 +454,145 @@ def test_erro_transitorio_usa_a_fila_curta(monkeypatch):
     with pytest.raises(yc.ErroTransitorio):
         yc.busca_serie_diaria("PETR4.SA", 0)
     assert esperas == list(yc.ESPERAS_TRANSITORIO)
+
+
+# --- a barra que a fonte anuncia e não entrega -------------------------------
+#
+# 21% das rodadas entre 15/09 e 27/11 publicaram um pregão atrás, sempre
+# exatamente um, sempre porque o Yahoo reportava o pregão em
+# `meta.regularMarketTime` e omitia a barra diária. Os números abaixo são os
+# reais do pregão de 2026-11-26, colhidos da fonte em 27/11.
+
+PREGAO_26 = {"o": 42.61, "h": 44.00, "l": 42.32, "c": 43.19, "v": 43_533_300}
+# O mesmo dia reconstruído a partir das barras de 5 min: o leilão de fechamento
+# não está lá, e por isso só a abertura coincide.
+INTRA_26 = {"o": 42.61, "h": 43.39, "l": 42.32, "c": 42.53, "v": 32_793_000}
+
+
+def resposta_intradiaria(primeira_em, aberturas, inicio=TS_SEX_21, fim=FIM_PREGAO_SEX):
+    """Série de 5 min cuja primeira barra começa em ``primeira_em`` (epoch)."""
+    n = len(aberturas)
+    return {
+        "meta": {
+            "gmtoffset": OFFSET,
+            "currentTradingPeriod": {"regular": {"start": inicio, "end": fim}},
+        },
+        "timestamp": [primeira_em + i * 300 for i in range(n)],
+        "indicators": {"quote": [{"open": list(aberturas)}]},
+    }
+
+
+def resposta_sem_a_barra_do_dia(preco, alta, baixa, volume):
+    """Diária que vai só até a quinta, com o meta anunciando a sexta."""
+    res = resposta([TS_QUI_20], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+    res["meta"]["regularMarketPrice"] = preco
+    res["meta"]["regularMarketDayHigh"] = alta
+    res["meta"]["regularMarketDayLow"] = baixa
+    res["meta"]["regularMarketVolume"] = volume
+    return res
+
+
+def test_abertura_vem_da_primeira_barra_do_pregao():
+    intra = resposta_intradiaria(TS_SEX_21, [42.61, 42.70, 42.55])
+    assert yc.abertura_do_intradiario(intra, "2026-08-21") == 42.61
+
+
+def test_abertura_aceita_atraso_de_poucos_minutos():
+    """10:05 e 10:10 foram 19 dos 60 pregões medidos, e bateram todos."""
+    for atraso in (300, 600):
+        intra = resposta_intradiaria(TS_SEX_21 + atraso, [42.61, 42.70])
+        assert yc.abertura_do_intradiario(intra, "2026-08-21") == 42.61
+
+
+def test_abertura_recusada_quando_a_serie_perde_o_comeco_do_dia():
+    """O caso real de 2026-11-16: primeira barra às 10:50, abertura 0,22% errada.
+
+    Era o único dos 60 pregões em que o intradiário divergia do oficial — e é
+    exatamente o que esta guarda recusa.
+    """
+    intra = resposta_intradiaria(TS_SEX_21 + 50 * 60, [45.10, 45.20])
+    assert yc.abertura_do_intradiario(intra, "2026-08-21") is None
+
+
+def test_abertura_recusada_para_dia_que_nao_esta_na_serie():
+    intra = resposta_intradiaria(TS_SEX_21, [42.61])
+    assert yc.abertura_do_intradiario(intra, "2026-08-20") is None
+
+
+def test_recompoe_a_barra_que_a_fonte_nao_entregou():
+    res = resposta_sem_a_barra_do_dia(
+        PREGAO_26["c"], PREGAO_26["h"], PREGAO_26["l"], PREGAO_26["v"]
+    )
+    intra = resposta_intradiaria(TS_SEX_21, [PREGAO_26["o"], 42.80])
+
+    linhas, recomposta = yc.recompoe_barra_ausente(res, intra, yc.extrai_pregoes(res))
+    assert recomposta == "2026-08-21"
+    barra = linhas[-1]
+    assert (barra["o"], barra["h"], barra["l"], barra["c"]) == (42.61, 44.00, 42.32, 43.19)
+    assert barra["v"] == 43_533_300
+    assert barra["c_de_meta"] is True
+    assert barra["o_de_intradiario"] is True
+
+    # E a validação deixa de ver pendência.
+    _, _, pendente = yc.valida_atualidade(linhas, yc.estado_do_mercado(res))
+    assert pendente is None
+
+
+def test_so_a_abertura_vem_do_intradiario():
+    """A armadilha: reconstruir o dia inteiro das barras de 5 min.
+
+    No pregão de 26/11 o intradiário erra o fechamento em -1,53%, a máxima em
+    -1,39% e o volume em -24,7%, porque perde o leilão de fechamento. Fechamento,
+    máxima, mínima e volume têm de vir do `meta`, que é pós-leilão.
+    """
+    res = resposta_sem_a_barra_do_dia(
+        PREGAO_26["c"], PREGAO_26["h"], PREGAO_26["l"], PREGAO_26["v"]
+    )
+    intra = resposta_intradiaria(TS_SEX_21, [INTRA_26["o"], INTRA_26["c"]])
+    linhas, _ = yc.recompoe_barra_ausente(res, intra, yc.extrai_pregoes(res))
+    barra = linhas[-1]
+    assert barra["c"] == PREGAO_26["c"] and barra["c"] != INTRA_26["c"]
+    assert barra["h"] == PREGAO_26["h"] and barra["h"] != INTRA_26["h"]
+    assert barra["v"] == PREGAO_26["v"] and barra["v"] != INTRA_26["v"]
+
+
+def test_nao_recompoe_barra_ausente_com_pregao_em_andamento():
+    res = resposta_sem_a_barra_do_dia(43.19, 44.00, 42.32, 1000)
+    res["meta"]["regularMarketTime"] = TS_SEX_21 + 3600  # ainda dentro do pregão
+    intra = resposta_intradiaria(TS_SEX_21, [42.61])
+    _, recomposta = yc.recompoe_barra_ausente(res, intra, yc.extrai_pregoes(res))
+    assert recomposta is None
+
+
+def test_nao_recompoe_quando_a_barra_existe_e_so_esta_incompleta():
+    """Barra presente com close nulo é trabalho de recupera_fechamento_do_meta."""
+    res = resposta([TS_QUI_20, TS_SEX_21], MARKET_TIME_SEX, TS_SEX_21, FIM_PREGAO_SEX)
+    res["indicators"]["quote"][0]["close"][1] = None
+    res["meta"]["regularMarketPrice"] = 43.19
+    res["meta"]["regularMarketDayHigh"] = 44.00
+    res["meta"]["regularMarketDayLow"] = 42.32
+    intra = resposta_intradiaria(TS_SEX_21, [42.61])
+    _, recomposta = yc.recompoe_barra_ausente(res, intra, yc.extrai_pregoes(res))
+    assert recomposta is None
+
+
+def test_nao_recompoe_se_a_abertura_cai_fora_da_faixa_do_dia():
+    """Duas respostas falando de coisas diferentes: não se junta."""
+    res = resposta_sem_a_barra_do_dia(43.19, 44.00, 42.32, 1000)
+    intra = resposta_intradiaria(TS_SEX_21, [50.00])  # fora de [42.32, 44.00]
+    _, recomposta = yc.recompoe_barra_ausente(res, intra, yc.extrai_pregoes(res))
+    assert recomposta is None
+
+
+def test_nao_recompoe_sem_serie_intradiaria():
+    """Sem a abertura não há barra — e a abertura não se inventa."""
+    res = resposta_sem_a_barra_do_dia(43.19, 44.00, 42.32, 1000)
+    _, recomposta = yc.recompoe_barra_ausente(res, None, yc.extrai_pregoes(res))
+    assert recomposta is None
+
+
+def test_nao_recompoe_sem_os_campos_do_meta():
+    res = resposta_sem_a_barra_do_dia(43.19, None, 42.32, 1000)
+    intra = resposta_intradiaria(TS_SEX_21, [42.61])
+    _, recomposta = yc.recompoe_barra_ausente(res, intra, yc.extrai_pregoes(res))
+    assert recomposta is None

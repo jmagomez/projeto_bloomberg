@@ -86,6 +86,16 @@ TOLERANCIA_OHLC = 0.005
 # tudo — nenhum calendário de feriado é necessário, o período vem na resposta.
 MARGEM_POS_FECHAMENTO = 3600
 
+# Quanto depois do início do pregão a primeira barra intradiária ainda pode
+# começar para que a abertura dela valha como abertura do dia. Medido contra 60
+# pregões em 27/11/2026: a abertura derivada do intradiário bateu **exatamente**
+# com a oficial em 59 deles. O único desvio (2026-11-16, +0,22%) é justamente
+# aquele em que a primeira barra só aparece às 10:50 — a série intradiária
+# perdeu a abertura, e o primeiro negócio disponível já não era o do leilão.
+# As barras aceitáveis começaram às 10:00 (39×), 10:05 (18×) e 10:10 (1×); as
+# recusadas, às 10:45 e 10:50. 15 min separa os dois grupos com folga.
+TOLERANCIA_ABERTURA = 900
+
 
 class ErroTransitorio(RuntimeError):
     """Falha que vale a pena repetir (rede, rate limit, 5xx)."""
@@ -332,6 +342,129 @@ def recupera_fechamento_do_meta(res: dict, linhas: list[dict]) -> tuple[list[dic
     return linhas, data_meta
 
 
+def abertura_do_intradiario(
+    res: dict, data_alvo: str, tolerancia: int = TOLERANCIA_ABERTURA
+) -> float | None:
+    """A abertura de ``data_alvo``, lida da série intradiária da mesma fonte.
+
+    **Só a abertura.** O resto da barra intradiária não serve, e isso é medido,
+    não suposto: no pregão de 2026-11-26 a série de 5 min fecha às 16:55 e perde
+    o leilão de fechamento, então o fechamento derivado dela saiu 1,53% abaixo
+    do oficial, a máxima 1,39% abaixo e o volume 24,7% abaixo. Reconstruir o dia
+    inteiro a partir do intradiário é a armadilha óbvia aqui; a abertura é a
+    única coisa que o leilão de fechamento não contamina.
+
+    A guarda é o horário da primeira barra. Ela precisa começar dentro de
+    ``tolerancia`` do início do pregão — ambos lidos da própria resposta, sem
+    calendário nem horário fixo no código. Quando a série intradiária perde o
+    começo do dia, o primeiro negócio disponível não é o da abertura, e aí não
+    há abertura nenhuma a devolver.
+    """
+    meta = res.get("meta") or {}
+    offset = int(meta.get("gmtoffset") or 0)
+    periodo = ((meta.get("currentTradingPeriod") or {}).get("regular")) or {}
+    inicio = periodo.get("start")
+    timestamps = res.get("timestamp") or []
+    if not inicio or not timestamps:
+        return None
+
+    cotacoes = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+    aberturas = cotacoes.get("open") or []
+
+    for i, ts in enumerate(timestamps):
+        if data_da_bolsa(int(ts), offset) != data_alvo:
+            continue
+        if i >= len(aberturas):
+            return None
+        valor = preco_possivel(aberturas[i])
+        if valor is None:
+            continue  # buraco no começo do dia; tenta a barra seguinte
+        # Hora do dia, em segundos, da primeira barra e do início do pregão.
+        hora_da_barra = (int(ts) + offset) % 86400
+        hora_de_abrir = (int(inicio) + offset) % 86400
+        atraso = hora_da_barra - hora_de_abrir
+        if 0 <= atraso <= tolerancia:
+            return valor
+        return None  # a série intradiária perdeu a abertura do dia
+    return None
+
+
+def recompoe_barra_ausente(
+    res: dict, res_intra: dict | None, linhas: list[dict]
+) -> tuple[list[dict], str | None]:
+    """Reconstrói o pregão que a fonte **anuncia e não entrega**.
+
+    Irmã de ``recupera_fechamento_do_meta``, para o outro defeito. Lá a barra
+    existe e o ``close`` vem nulo; aqui a barra não existe — não há sequer
+    ``timestamp`` para o dia. Foi o que travou o dashboard em 21% das rodadas
+    entre 15/09 e 27/11, sempre por exatamente um pregão.
+
+    O ``meta`` traz quatro dos cinco campos do dia já consolidados, depois do
+    leilão: ``regularMarketPrice``, ``regularMarketDayHigh``,
+    ``regularMarketDayLow`` e ``regularMarketVolume``. O que falta é a
+    abertura — e os 29 campos do ``meta``, conferidos em 27/11/2026, não têm
+    nenhum. É por isso que esta recomposição não existia.
+
+    A abertura vem da série intradiária da própria fonte (ver
+    ``abertura_do_intradiario``). Nada é estimado: cada campo é um número que a
+    fonte publicou para aquele pregão. O que muda é de qual resposta ele vem.
+
+    Devolve ``(linhas, data_recomposta_ou_None)``.
+    """
+    meta = res.get("meta") or {}
+    offset = int(meta.get("gmtoffset") or 0)
+    market_time = meta.get("regularMarketTime")
+    if not market_time or not res_intra:
+        return linhas, None
+
+    periodo = ((meta.get("currentTradingPeriod") or {}).get("regular")) or {}
+    fim = periodo.get("end")
+    if fim and int(market_time) < int(fim):
+        return linhas, None  # pregão em andamento: nunca se recompõe
+
+    data_meta = data_da_bolsa(int(market_time), offset)
+    if linhas and linhas[-1]["d"] >= data_meta:
+        return linhas, None  # a série já alcança o pregão
+
+    # Se a fonte trouxe um timestamp para o dia, a barra existe e está só
+    # incompleta — esse caso é de recupera_fechamento_do_meta, não deste.
+    for ts in res.get("timestamp") or []:
+        if data_da_bolsa(int(ts), offset) == data_meta:
+            return linhas, None
+
+    c = preco_possivel(meta.get("regularMarketPrice"))
+    h = preco_possivel(meta.get("regularMarketDayHigh"))
+    low = preco_possivel(meta.get("regularMarketDayLow"))
+    o = abertura_do_intradiario(res_intra, data_meta)
+    if None in (c, h, low, o):
+        return linhas, None
+
+    # As mesmas coerências de sempre, agora entre respostas diferentes: se não
+    # fecharem, alguma das duas está falando de outra coisa.
+    if not barra_coerente(o, h, low, c) or not (low <= c <= h) or not (low <= o <= h):
+        return linhas, None
+
+    volume = meta.get("regularMarketVolume")
+    try:
+        vol = max(int(volume or 0), 0)
+    except (TypeError, ValueError):
+        vol = 0
+
+    linhas = linhas + [
+        {
+            "d": data_meta,
+            "o": float(o),
+            "h": float(h),
+            "l": float(low),
+            "c": float(c),
+            "v": vol,
+            "c_de_meta": True,
+            "o_de_intradiario": True,
+        }
+    ]
+    return linhas, data_meta
+
+
 def pregao_em_curso(res: dict, margem: int = MARGEM_POS_FECHAMENTO) -> bool:
     """O dia ainda está em movimento — contada a margem do after-market.
 
@@ -413,6 +546,9 @@ def _uma_tentativa(
         "events": "div",
     }
     params_curto = {"range": "1mo", "interval": "1d", "events": "div"}
+    # 5 dias de barras de 5 min: o bastante para a abertura do pregão que falta,
+    # e pequeno o suficiente para não pesar. Só é pedido quando falta alguma.
+    params_intra = {"range": "5d", "interval": "5m"}
 
     hosts = ordem_dos_hosts(tentativa)
     avisos: list[str] = []
@@ -420,6 +556,7 @@ def _uma_tentativa(
     serie_longa: list[dict] = []
     proventos: dict[str, float] = {}
     estado_melhor: dict | None = None
+    res_ultimo_bom: dict = {}
     operando = False
     falhas: list[str] = []
 
@@ -435,6 +572,7 @@ def _uma_tentativa(
             recomposicoes.add(recomposta)
         proventos = extrai_proventos(res)
         estado_melhor = estado_do_mercado(res)
+        res_ultimo_bom = res
         operando = estado_melhor["operando"]
         break
 
@@ -463,8 +601,35 @@ def _uma_tentativa(
             or estado["ultimo_pregao"] > estado_melhor["ultimo_pregao"]
         ):
             estado_melhor = estado
+            res_ultimo_bom = res
+
+    # A fonte anuncia um pregão que nenhuma das consultas entregou. Só agora, e
+    # só nesse caso, vale uma quarta requisição: a série intradiária, de onde
+    # sai a abertura que o `meta` não tem. Rodada saudável não paga por isto.
+    reconstruida = None
+    if estado_melhor and estado_melhor.get("ultimo_pregao"):
+        falta = not serie_longa or serie_longa[-1]["d"] < estado_melhor["ultimo_pregao"]
+        if falta and not estado_melhor.get("operando"):
+            res_intra = None
+            for host in hosts:
+                try:
+                    res_intra = _requisita(host, symbol, params_intra)
+                    break
+                except ErroTransitorio as exc:
+                    avisos.append(f"série intradiária em {host} falhou: {exc}")
+            if res_intra is not None:
+                serie_longa, reconstruida = recompoe_barra_ausente(
+                    res_ultimo_bom, res_intra, serie_longa
+                )
+                if reconstruida:
+                    avisos.append(
+                        f"a fonte anunciou o pregão de {reconstruida} e não o entregou; "
+                        "barra recomposta — fechamento, máxima, mínima e volume do "
+                        "'meta', abertura da série intradiária da mesma fonte"
+                    )
 
     estado = estado_melhor or {"ultimo_pregao": None, "aberto": False, "operando": False}
+    estado["barra_reconstruida"] = reconstruida
     # A trava não pode depender de `estado_melhor`, que só é escolhido entre as
     # respostas que trouxeram `regularMarketTime`. Se *qualquer* resposta disse
     # que o dia está em movimento, está em movimento: basta uma para não

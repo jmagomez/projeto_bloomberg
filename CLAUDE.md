@@ -170,13 +170,21 @@ Três coisas que não se veem lendo o YAML rápido:
   `mail.ok == 'true'`. Sem os secrets configurados, a rotina falha **sem avisar
   ninguém** — o job fica vermelho só na aba Actions.
 
-### Pendência conhecida no `ci.yml`
+### Por que `data.js` e `noticias.json` estão no `paths-ignore` do `ci.yml`
 
-`data.js` e `noticias.json` ficam na **raiz** e por isso escapam do `data/**` do
-`paths-ignore`. Resultado: cada commit diário da rotina dispara a suíte inteira
-sobre um diff que não tem como quebrá-la. A correção é acrescentar os dois à
-lista; ainda não foi aplicada (ver a seção de ambiente — este arquivo é de
-`.github/workflows/`).
+Os dois ficam na **raiz**, e por isso escapavam do `data/**`: cada commit diário
+da rotina disparava a suíte inteira sobre um diff que não tem como quebrá-la.
+Foram acrescentados às duas listas, `push` e `pull_request`, em 27/11/2026
+(commit `60ea5af`). Duas coisas a lembrar antes de mexer:
+
+- **`paths-ignore` só pula quando *tudo* o que veio no push está na lista.** Um
+  push que mexa em `scripts/` e em `data.js` junto roda o CI normalmente — que é
+  exatamente o que se quer. Não troque por `paths`, que inverteria a lógica.
+- **Este `ci.yml` é template compartilhado.** O cabeçalho dele diz que serve a
+  `oil-gas-financial-dashboard`, `vendas-liquidos`, `projeto_bloomberg` e
+  `resumo-focus-public`. As duas entradas são inócuas onde esses arquivos não
+  existem, então o template continua copiável inteiro; mas se em algum desses
+  repos `data.js` for **código**, e não saída de rotina, a linha precisa sair lá.
 
 ## Ambiente: o que não funciona daqui
 
@@ -193,6 +201,13 @@ Isto é friction conhecida, redescoberta a cada sessão. Não gaste tempo:
      `ClipboardEvent` sintético com `DataTransfer`. Truque que evita retranscrever
      o arquivo: buscar o conteúdo atual com `fetch` na própria página e aplicar as
      substituições em JS antes de colar.
+
+     **Confira dentro da página antes de entregar o clique.** Leia o documento
+     pelos divs `.cm-content > .cm-line` (`textContent`, juntos por `\n`), nunca
+     por `innerText` — ele conta linha em branco duas vezes e dá falso alarme — e
+     compare o SHA-256 com `crypto.subtle.digest` contra o hash do arquivo local.
+     É a mesma exigência da seção "Depois de publicar, confira", só que antes do
+     commit: foi um subagente trocando um acento em silêncio que criou a regra.
 - **A extensão do Chrome cai no meio da sessão.** Já aconteceu mais de uma vez:
   funciona no começo do turno e some depois. Não conte com ela para o passo
   final de uma cadeia — faça o que depende dela cedo, ou tenha o plano B (acima).

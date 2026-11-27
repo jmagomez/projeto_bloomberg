@@ -1,13 +1,25 @@
 name: Atualiza dashboard PETR4
 
-# Uma rodada por pregão, depois do fechamento. A B3 negocia das 10:00 às 17:00
-# em Brasília (13:00–20:00 UTC), com after-market até 17:55; 21:47 UTC = 18:47
-# em Brasília, com o dia consolidado. O minuto fora de :00 e :30 é de
-# propósito: são os mais disputados na fila do GitHub Actions. O atraso típico
-# da fila hoje é de cerca de duas horas, o que ainda deixa a execução longe da
-# abertura seguinte (13:00 UTC).
+# Uma rodada por pregão, na manhã seguinte. A B3 negocia das 10:00 às 17:00 em
+# Brasília (13:00–20:00 UTC); 05:47 UTC de terça a sábado = 02:47 em Brasília,
+# com o pregão da véspera encerrado há horas e a abertura seguinte ainda longe.
+# Terça a sábado, e não segunda a sexta, porque a rodada trata do pregão do dia
+# anterior: a de sábado cobre a sexta, e não há rodada de segunda porque não há
+# pregão de domingo.
 #
-# Havia três horários: este, uma repescagem às 23:47 e uma rede de sábado. Os
+# **Por que de manhã, e não às 18:47 como antes.** Medido sobre 58 rodadas entre
+# 15/09 e 27/11: 21% publicaram um pregão atrás, sempre exatamente um, porque o
+# Yahoo anuncia o pregão em `regularMarketTime` horas antes de servir a barra
+# diária. Em 27/11 a barra de 26/11 ainda não existia às 00:55 de Brasília e já
+# existia às 14:30. Rodar de manhã dá à fonte a noite inteira para consolidar.
+#
+# **O minuto fora de :00 e :30** é de propósito: são os mais disputados na fila
+# do GitHub Actions. E a fila aqui atrasa de 2 a 7 horas, o que define o
+# horário: com 05:47, mesmo o pior atraso (12:47 UTC) ainda cai antes da
+# abertura (13:00 UTC). Qualquer cron mais tarde arriscaria executar com o
+# pregão em curso — e aí a trava `pregao_em_curso` pularia o dia inteiro.
+#
+# Havia três horários: 21:47, uma repescagem às 23:47 e uma rede de sábado. Os
 # dois extras saíram junto com a correção que os tornou desnecessários: a
 # rotina virou idempotente (`mesmo_conteudo`) e parou de chamar de falha o
 # cache velho da fonte quando o dashboard já estava em dia (`situacao_da_coleta`).
@@ -15,7 +27,7 @@ name: Atualiza dashboard PETR4
 # hora em que ela rodou, e um alarme por dia.
 on:
   schedule:
-    - cron: "47 21 * * 1-5"
+    - cron: "47 5 * * 2-6"
   workflow_dispatch:
     inputs:
       forcar:
@@ -56,6 +68,28 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+
+      # Piso de horário, não horário fixo: o efetivo é cron + fila, e a fila não
+      # é nossa. Com a fila variando de 2 a 7 h, uma rodada disparada às 05:47
+      # começa entre 07:47 e 12:47 UTC. Este passo segura a que chegou cedo até
+      # 09:47 UTC, para que a fonte tenha sempre pelo menos essas horas a mais
+      # para consolidar o pregão. Quem já começou depois das 09:47 não espera
+      # nada — o `sleep` é zero na maior parte das rodadas.
+      #
+      # O teto de 3 h existe para nunca prender um runner por acidente, e 09:47
+      # está longe o bastante da abertura (13:00 UTC) para que a espera jamais
+      # empurre a rodada para dentro do pregão.
+      - name: Aguarda o piso de 09:47 UTC
+        run: |
+          alvo=$(date -u -d '09:47 today' +%s)
+          agora=$(date -u +%s)
+          espera=$(( alvo - agora ))
+          if [ "$espera" -gt 0 ] && [ "$espera" -le 10800 ]; then
+            echo "::notice::Começou às $(date -u +%H:%M) UTC; aguardando ${espera}s até o piso de 09:47 UTC."
+            sleep "$espera"
+          else
+            echo "Começou às $(date -u +%H:%M) UTC — o piso de 09:47 já passou, segue direto."
+          fi
 
       # A rotina do dashboard depende apenas de `requests`. O pipeline ETL da
       # Alpha Vantage (pandas, dotenv) não roda aqui.

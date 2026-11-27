@@ -2,6 +2,11 @@
 # Serve para: oil-gas-financial-dashboard, vendas-liquidos, projeto_bloomberg, resumo-focus-public
 name: CI
 
+# `data.js` e `noticias.json` sao saida de rotina, nao codigo, e ficam na raiz —
+# por isso escapavam do `data/**`. Sem eles na lista, cada commit diario da
+# rotina disparava a suite inteira sobre um diff que nao tem como quebra-la.
+# Se o mesmo push mexer em codigo, o CI roda normalmente: `paths-ignore` so pula
+# quando *tudo* o que veio no push esta na lista.
 on:
   push:
     branches: [main]
@@ -9,11 +14,15 @@ on:
       - "data/**"
       - "docs/**"
       - "output/**"
+      - "data.js"
+      - "noticias.json"
   pull_request:
     paths-ignore:
       - "data/**"
       - "docs/**"
       - "output/**"
+      - "data.js"
+      - "noticias.json"
 
 permissions:
   contents: read

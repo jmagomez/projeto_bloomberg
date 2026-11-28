@@ -71,24 +71,37 @@ jobs:
 
       # Piso de horário, não horário fixo: o efetivo é cron + fila, e a fila não
       # é nossa. Com a fila variando de 2 a 7 h, uma rodada disparada às 05:47
-      # começa entre 07:47 e 12:47 UTC. Este passo segura a que chegou cedo até
+      # começa entre 05:47 e 12:47 UTC. Este passo segura a que chegou cedo até
       # 09:47 UTC, para que a fonte tenha sempre pelo menos essas horas a mais
       # para consolidar o pregão. Quem já começou depois das 09:47 não espera
-      # nada — o `sleep` é zero na maior parte das rodadas.
+      # nada.
       #
-      # O teto de 3 h existe para nunca prender um runner por acidente, e 09:47
-      # está longe o bastante da abertura (13:00 UTC) para que a espera jamais
-      # empurre a rodada para dentro do pregão.
+      # **O teto precisa ser maior que a distância entre o cron e o piso.** A
+      # primeira versão deste passo usava 3 h e tinha um defeito silencioso:
+      # entre 05:47 e 09:47 vão 4 h, então a rodada que começava no horário —
+      # justamente a que o piso existe para segurar — caía no `else` e corria
+      # às 05:50 UTC, 02:50 em Brasília, que é o horário em que a fonte ainda
+      # está incompleta em 21% das vezes. O piso só funcionava para quem já
+      # tinha esperado 2 h na fila. E o log dizia "o piso já passou", que era
+      # falso. Teto de 4 h05 cobre a janela inteira com folga; acima disso é
+      # disparo manual fora de hora, que avisa e segue sem dormir.
+      #
+      # 09:47 está longe o bastante da abertura (13:00 UTC) para que a espera
+      # jamais empurre a rodada para dentro do pregão.
       - name: Aguarda o piso de 09:47 UTC
+        env:
+          TETO_DE_ESPERA: "14700"
         run: |
           alvo=$(date -u -d '09:47 today' +%s)
           agora=$(date -u +%s)
           espera=$(( alvo - agora ))
-          if [ "$espera" -gt 0 ] && [ "$espera" -le 10800 ]; then
+          if [ "$espera" -le 0 ]; then
+            echo "Começou às $(date -u +%H:%M) UTC, depois do piso de 09:47 — segue direto."
+          elif [ "$espera" -gt "$TETO_DE_ESPERA" ]; then
+            echo "::warning::Começou às $(date -u +%H:%M) UTC, ${espera}s antes do piso de 09:47 — acima do teto de ${TETO_DE_ESPERA}s. Seguindo sem esperar; a fonte pode estar incompleta."
+          else
             echo "::notice::Começou às $(date -u +%H:%M) UTC; aguardando ${espera}s até o piso de 09:47 UTC."
             sleep "$espera"
-          else
-            echo "Começou às $(date -u +%H:%M) UTC — o piso de 09:47 já passou, segue direto."
           fi
 
       # A rotina do dashboard depende apenas de `requests`. O pipeline ETL da
